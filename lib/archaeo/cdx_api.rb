@@ -47,6 +47,7 @@ module Archaeo
     # Returns an Enumerator of Snapshot objects, auto-paginating
     # via resume key unless an explicit page is requested.
     def snapshots(url, **options)
+      url = UrlNormalizer.normalize(url)
       validate_options!(options)
 
       Enumerator.new do |yielder|
@@ -59,9 +60,15 @@ module Archaeo
     end
 
     def near(url, timestamp:)
+      url = UrlNormalizer.normalize(url)
       ts = Timestamp.coerce(timestamp)
       result = snapshots(url, sort: "closest",
                               closest: ts.to_s, limit: 1).first
+      if result&.blocked?
+        raise BlockedSiteError,
+              "Site is blocked: #{url}"
+      end
+
       result || raise(NoSnapshotFound,
                       "No snapshot found near #{ts} for #{url}")
     end
@@ -94,6 +101,7 @@ module Archaeo
 
     # Returns the number of pages for a paginated query.
     def num_pages(url, **options)
+      url = UrlNormalizer.normalize(url)
       params = { "url" => url, "showNumPages" => "true" }
       merge_scalar_params!(params, options)
       response = @client.get(
@@ -109,6 +117,7 @@ module Archaeo
 
     # Returns all unique original URLs under a domain.
     def known_urls(domain, match_type: "domain")
+      domain = UrlNormalizer.normalize(domain)
       snapshots(domain, match_type: match_type,
                         collapse: ["urlkey"]).map(&:original_url).uniq
     end

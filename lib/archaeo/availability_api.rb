@@ -16,6 +16,7 @@ module Archaeo
     end
 
     def near(url, timestamp: nil)
+      url = UrlNormalizer.normalize(url)
       params = { "url" => url }
       params["timestamp"] = timestamp.to_s if timestamp
 

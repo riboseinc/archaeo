@@ -87,6 +87,12 @@ RSpec.describe Archaeo::CdxApi do
         expect(url).to include("gzip=false")
       end
 
+      it "normalizes URL whitespace before querying" do
+        client.snapshots("  example.com  ").to_a
+        url = fake_client.last_url
+        expect(url).to include("url=example.com")
+      end
+
       it "handles non-ASCII URLs" do
         client.snapshots("https://example.com/%C3%84").to_a
         url = fake_client.last_url
@@ -256,6 +262,21 @@ RSpec.describe Archaeo::CdxApi do
                          timestamp: Archaeo::Timestamp.new(year: 2022))
       expect(snap).to be_a(Archaeo::Snapshot)
       expect(snap.original_url).to eq("https://example.com/")
+    end
+
+    it "raises BlockedSiteError for blocked snapshots" do
+      blocked_rows = [
+        ["com,blocked)/", "20220113130051",
+         "https://blocked.com/", "text/html",
+         "-1", "ABC", "12345"],
+      ]
+      fake = FakeHttpClient.new([cdx_json_response(blocked_rows)])
+      api = described_class.new(client: fake)
+
+      expect do
+        api.near("blocked.com",
+                 timestamp: Archaeo::Timestamp.new(year: 2022))
+      end.to raise_error(Archaeo::BlockedSiteError, /blocked/)
     end
 
     it "sorts by closest and limits to 1" do
