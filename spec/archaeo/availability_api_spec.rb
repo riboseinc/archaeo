@@ -146,4 +146,12 @@ RSpec.describe Archaeo::AvailabilityApi do
       expect(result.archive_url).to start_with("https://")
     end
   end
+
+  describe "rate limit handling" do
+    it "raises RateLimitError on 503" do
+      @responses = [FakeHttpClient.response(status: 503)]
+      expect { api.near("example.com") }
+        .to raise_error(Archaeo::RateLimitError, /rate limited/)
+    end
+  end
 end

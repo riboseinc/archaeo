@@ -128,5 +128,52 @@ RSpec.describe Archaeo::BulkDownloader do
       expect(url).to include("from=20220101")
       expect(url).to include("to=20221231")
     end
+
+    it "uses mimetype-aware file extensions" do
+      css_row = [
+        "com,example)/style.css", "20220113130051",
+        "https://example.com/style.css", "text/css",
+        "200", "ABC", "12345"
+      ]
+      cdx_resp = cdx_response([css_row])
+      fetch_resp = FakeHttpClient.response(
+        status: 200,
+        headers: { "content-type" => "text/css" },
+        body: "body { color: red; }",
+      )
+      fake = FakeHttpClient.new([cdx_resp, fetch_resp])
+      downloader = described_class.new(
+        client: fake, output_dir: tmpdir,
+      )
+
+      downloader.download("example.com")
+      files = Dir.glob(File.join(tmpdir, "**", "*.css"))
+        .select { |f| File.file?(f) }
+      expect(files.length).to eq(1)
+    end
+
+    it "accepts custom CdxApi via constructor" do
+      single_row = [
+        ["com,example)/", "20220113130051",
+         "https://example.com/", "text/html",
+         "200", "ABC", "12345"],
+      ]
+      cdx_resp = cdx_response(single_row)
+      fetch_resp = FakeHttpClient.response(
+        status: 200,
+        headers: { "content-type" => "text/html" },
+        body: "ok",
+      )
+      fake = FakeHttpClient.new([cdx_resp, fetch_resp])
+      custom_cdx = Archaeo::CdxApi.new(client: fake)
+      downloader = described_class.new(
+        client: fake, output_dir: tmpdir, cdx_api: custom_cdx,
+      )
+
+      downloader.download("example.com")
+      files = Dir.glob(File.join(tmpdir, "**", "*"))
+        .select { |f| File.file?(f) }
+      expect(files.length).to eq(1)
+    end
   end
 end

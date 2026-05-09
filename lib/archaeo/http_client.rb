@@ -70,7 +70,13 @@ module Archaeo
     def get(url, headers: {})
       merged = default_headers.merge(headers)
       uri = URI(url)
-      attempt_with_retries(uri, merged)
+      attempt_with_retries(uri, merged, Net::HTTP::Get)
+    end
+
+    def head(url, headers: {})
+      merged = default_headers.merge(headers)
+      uri = URI(url)
+      attempt_with_retries(uri, merged, Net::HTTP::Head)
     end
 
     def shutdown
@@ -128,10 +134,10 @@ module Archaeo
       end
     end
 
-    def attempt_with_retries(uri, headers)
+    def attempt_with_retries(uri, headers, request_class)
       retries = 0
       begin
-        execute_with_connection(uri, headers)
+        execute_with_connection(uri, headers, request_class)
       rescue *TRANSIENT_ERRORS => e
         retries += 1
         raise_if_exhausted(retries, e)
@@ -148,9 +154,9 @@ module Archaeo
             "Failed after #{retries} retries: #{error.message}"
     end
 
-    def execute_with_connection(uri, headers)
+    def execute_with_connection(uri, headers, request_class)
       http = connection_for(uri)
-      request = Net::HTTP::Get.new(uri)
+      request = request_class.new(uri)
       headers.each { |k, v| request[k] = v }
       raw = http.request(request)
       build_response(raw)
