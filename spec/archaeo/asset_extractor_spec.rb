@@ -101,4 +101,20 @@ RSpec.describe Archaeo::AssetExtractor do
       expect(list.media).to include("/intro.mp4")
     end
   end
+
+  describe "favicon extraction" do
+    it "extracts link rel=icon" do
+      html = '<html><head><link rel="icon" href="/favicon.ico">' \
+             "</head></html>"
+      list = described_class.new(html).extract
+      expect(list.images).to include("/favicon.ico")
+    end
+
+    it "extracts link rel=shortcut icon" do
+      html = '<html><head><link rel="shortcut icon" ' \
+             'href="/favicon.png"></head></html>'
+      list = described_class.new(html).extract
+      expect(list.images).to include("/favicon.png")
+    end
+  end
 end
