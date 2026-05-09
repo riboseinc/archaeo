@@ -3,9 +3,14 @@
 require "spec_helper"
 
 RSpec.describe Archaeo::CdxApi do
-  def cdx_json_response(rows)
+  def cdx_json_response(rows, resume_key: nil)
     header = Archaeo::CdxApi::ALL_FIELDS
-    body = JSON.generate([header] + rows)
+    body_array = [header] + rows
+    if resume_key
+      body_array << []
+      body_array << [resume_key]
+    end
+    body = JSON.generate(body_array)
     FakeHttpClient.response(status: 200, body: body)
   end
 
@@ -72,7 +77,7 @@ RSpec.describe Archaeo::CdxApi do
         client.snapshots("example.com").to_a
         url = fake_client.last_url
         expect(url).to include("output=json")
-        expect(url).to include("gzip=true")
+        expect(url).to include("showResumeKey=true")
         expect(url).to include("fl=")
       end
 
@@ -86,6 +91,81 @@ RSpec.describe Archaeo::CdxApi do
         client.snapshots("https://example.com/%C3%84").to_a
         url = fake_client.last_url
         expect(url).to include("url=https%3A%2F%2Fexample.com")
+      end
+
+      it "passes offset parameter" do
+        client.snapshots("example.com", offset: 100).to_a
+        url = fake_client.last_url
+        expect(url).to include("offset=100")
+      end
+    end
+
+    context "with resume key pagination" do
+      it "fetches multiple pages" do
+        page1_rows = [
+          ["com,example)/", "20220113130051",
+           "https://example.com/", "text/html", "200", "ABC", "12345"],
+        ]
+        page2_rows = [
+          ["com,example)/", "20210601120000",
+           "https://example.com/", "text/html", "200", "DEF", "6789"],
+        ]
+        responses = [
+          cdx_json_response(page1_rows,
+                            resume_key: "resume_token_page1"),
+          cdx_json_response(page2_rows),
+        ]
+        fake = FakeHttpClient.new(responses)
+        api = described_class.new(client: fake)
+
+        snapshots = api.snapshots("example.com").to_a
+        expect(snapshots.length).to eq(2)
+        expect(snapshots[0].timestamp.to_s).to eq("20220113130051")
+        expect(snapshots[1].timestamp.to_s).to eq("20210601120000")
+      end
+
+      it "passes resumeKey on subsequent requests" do
+        page1 = cdx_json_response(sample_rows.first(1),
+                                  resume_key: "token123")
+        page2 = cdx_json_response(sample_rows.last(1))
+        fake = FakeHttpClient.new([page1, page2])
+        api = described_class.new(client: fake)
+
+        api.snapshots("example.com").to_a
+        # Second request URL should contain resumeKey
+        urls = fake.all_urls
+        expect(urls.length).to eq(2)
+        expect(urls[1]).to include("resumeKey=token123")
+      end
+
+      it "stops when resume key is empty" do
+        responses = [
+          cdx_json_response(sample_rows, resume_key: ""),
+        ]
+        fake = FakeHttpClient.new(responses)
+        api = described_class.new(client: fake)
+
+        snapshots = api.snapshots("example.com").to_a
+        expect(snapshots.length).to eq(2)
+        expect(fake.all_urls.length).to eq(1)
+      end
+    end
+
+    context "with page-based pagination" do
+      let(:fake_client) do
+        FakeHttpClient.new([cdx_json_response(sample_rows)])
+      end
+
+      it "fetches a specific page" do
+        client.snapshots("example.com", page: 0).to_a
+        url = fake_client.last_url
+        expect(url).to include("page=0")
+      end
+
+      it "does not use showResumeKey for page queries" do
+        client.snapshots("example.com", page: 0).to_a
+        url = fake_client.last_url
+        expect(url).to include("showResumeKey=true")
       end
     end
 
@@ -130,6 +210,38 @@ RSpec.describe Archaeo::CdxApi do
         expect do
           client.snapshots("example.com", sort: "invalid")
         end.to raise_error(ArgumentError, /Invalid sort/)
+      end
+    end
+
+    context "with invalid filter field" do
+      let(:fake_client) { FakeHttpClient.new([]) }
+
+      it "raises ArgumentError" do
+        expect do
+          client.snapshots("example.com", filters: ["bogus:value"])
+        end.to raise_error(ArgumentError, /Invalid CDX filter field/)
+      end
+    end
+
+    context "with invalid collapse field" do
+      let(:fake_client) { FakeHttpClient.new([]) }
+
+      it "raises ArgumentError" do
+        expect do
+          client.snapshots("example.com", collapse: ["bogus"])
+        end.to raise_error(ArgumentError, /Invalid collapse field/)
+      end
+    end
+
+    context "with valid collapse field and N suffix" do
+      let(:fake_client) do
+        FakeHttpClient.new([cdx_json_response(sample_rows)])
+      end
+
+      it "accepts collapse with character limit" do
+        client.snapshots("example.com", collapse: ["timestamp:10"]).to_a
+        url = fake_client.last_url
+        expect(url).to include("collapse0=timestamp%3A10")
       end
     end
   end
@@ -230,6 +342,46 @@ RSpec.describe Archaeo::CdxApi do
           client.after("example.com", timestamp: ts)
         end.to raise_error(Archaeo::NoSnapshotFound)
       end
+    end
+  end
+
+  describe "#num_pages" do
+    it "returns the number of pages" do
+      response = FakeHttpClient.response(status: 200, body: "42")
+      fake = FakeHttpClient.new([response])
+      api = described_class.new(client: fake)
+
+      expect(api.num_pages("example.com")).to eq(42)
+    end
+
+    it "sends showNumPages=true" do
+      response = FakeHttpClient.response(status: 200, body: "1")
+      fake = FakeHttpClient.new([response])
+      api = described_class.new(client: fake)
+
+      api.num_pages("example.com")
+      expect(fake.last_url).to include("showNumPages=true")
+    end
+  end
+
+  describe "#known_urls" do
+    it "returns unique original URLs" do
+      rows = [
+        ["com,example)/", "20220113130051",
+         "https://example.com/", "text/html", "200", "ABC", "12345"],
+        ["com,example)/about", "20220113130052",
+         "https://example.com/about", "text/html", "200", "DEF", "6789"],
+        ["com,example)/", "20220113130053",
+         "https://example.com/", "text/html", "200", "GHI", "1111"],
+      ]
+      fake = FakeHttpClient.new([cdx_json_response(rows)])
+      api = described_class.new(client: fake)
+
+      urls = api.known_urls("example.com")
+      expect(urls).to eq([
+                           "https://example.com/",
+                           "https://example.com/about",
+                         ])
     end
   end
 end
