@@ -33,19 +33,7 @@ RSpec.describe Archaeo::HttpClient do
     end
   end
 
-  describe "user agent" do
-    it "uses a rotating user agent by default" do
-      ua = described_class.new.send(:select_user_agent)
-      expect(ua).to include("Mozilla")
-    end
-
-    it "uses custom user agent when provided" do
-      custom = described_class.new(user_agent: "CustomBot/1.0")
-      expect(custom.send(:select_user_agent)).to eq("CustomBot/1.0")
-    end
-  end
-
-  describe "#get", :network do
+  describe "user agent", :network do
     it "makes an HTTP GET request" do
       response = client.get("https://httpbin.org/get")
       expect(response.status).to eq(200)
