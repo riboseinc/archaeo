@@ -160,4 +160,22 @@ RSpec.describe Archaeo::Timestamp do
     it { expect(ts.minute).to eq(30) }
     it { expect(ts.second).to eq(45) }
   end
+
+  describe "#to_date" do
+    it "returns a Date object" do
+      ts = described_class.new(year: 2022, month: 6, day: 15)
+      date = ts.to_date
+      expect(date).to be_a(Date)
+      expect(date.year).to eq(2022)
+      expect(date.month).to eq(6)
+      expect(date.day).to eq(15)
+    end
+  end
+
+  describe "#to_i" do
+    it "returns the unix epoch" do
+      ts = described_class.new(year: 2022, month: 1, day: 1)
+      expect(ts.to_i).to eq(Time.utc(2022, 1, 1).to_i)
+    end
+  end
 end

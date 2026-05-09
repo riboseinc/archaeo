@@ -33,9 +33,25 @@ module Archaeo
       @status_code == BLOCKED_STATUS
     end
 
+    def success?
+      @status_code == 200
+    end
+
     def to_a
       [@urlkey, @timestamp, @original_url, @mimetype,
        @status_code, @digest, @length]
+    end
+
+    def to_h
+      {
+        urlkey: @urlkey,
+        timestamp: @timestamp,
+        original_url: @original_url,
+        mimetype: @mimetype,
+        status_code: @status_code,
+        digest: @digest,
+        length: @length,
+      }
     end
 
     def ==(other)
