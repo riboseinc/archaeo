@@ -199,6 +199,17 @@ RSpec.describe Archaeo::CdxApi do
       end
     end
 
+    context "with rate limit (503)" do
+      let(:fake_client) do
+        FakeHttpClient.new([FakeHttpClient.response(status: 503)])
+      end
+
+      it "raises RateLimitError" do
+        expect { client.snapshots("example.com").to_a }
+          .to raise_error(Archaeo::RateLimitError, /rate limited/)
+      end
+    end
+
     context "with invalid match_type" do
       let(:fake_client) { FakeHttpClient.new([]) }
 
