@@ -328,5 +328,22 @@ RSpec.describe Archaeo::Cli do
       expect { described_class.start(%w[help known_urls]) }
         .to output(/List all known URLs/).to_stdout
     end
+
+    it "shows help for num_pages command" do
+      expect { described_class.start(%w[help num_pages]) }
+        .to output(/number of CDX result pages/).to_stdout
+    end
+  end
+
+  describe "num_pages" do
+    it "outputs the page count" do
+      response = FakeHttpClient.response(status: 200, body: "7")
+      fake = FakeHttpClient.new([response])
+      cdx = Archaeo::CdxApi.new(client: fake)
+      allow(Archaeo::CdxApi).to receive(:new).and_return(cdx)
+
+      expect { described_class.start(%w[num_pages example.com]) }
+        .to output("7\n").to_stdout
+    end
   end
 end

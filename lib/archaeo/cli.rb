@@ -119,6 +119,18 @@ module Archaeo
       end
     end
 
+    desc "num_pages URL",
+         "Show number of CDX result pages for a URL"
+    def num_pages(url)
+      puts CdxApi.new.num_pages(url)
+    rescue RateLimitError => e
+      warn "Error: #{e.message}"
+      exit 1
+    rescue Error => e
+      warn "Error: #{e.message}"
+      exit 1
+    end
+
     CDX_OPTION_MAP = {
       from: :from,
       to: :to,

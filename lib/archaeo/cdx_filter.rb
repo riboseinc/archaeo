@@ -55,6 +55,10 @@ module Archaeo
       new("original:#{pattern}")
     end
 
+    def self.by_urlkey(pattern)
+      new("urlkey:#{pattern}")
+    end
+
     private
 
     def validate!

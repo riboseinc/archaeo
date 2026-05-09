@@ -32,6 +32,9 @@ module Archaeo
       @doc.css('link[rel="stylesheet"]').each do |el|
         list.add(resolve(el["href"]), type: :css)
       end
+      @doc.css('link[rel="icon"], link[rel="shortcut icon"]').each do |el|
+        list.add(resolve(el["href"]), type: :image)
+      end
     end
 
     def extract_js(list)

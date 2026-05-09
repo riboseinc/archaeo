@@ -96,6 +96,13 @@ RSpec.describe Archaeo::CdxFilter do
     end
   end
 
+  describe ".by_urlkey" do
+    it "builds a urlkey filter" do
+      expect(described_class.by_urlkey("com,example").to_s)
+        .to eq("urlkey:com,example")
+    end
+  end
+
   describe "valid fields" do
     Archaeo::CdxFilter::VALID_FIELDS.each do |field|
       it "accepts #{field}" do
