@@ -9,9 +9,11 @@ module Archaeo
   # and saves content to disk. Progress is tracked in a state file
   # for interrupted download recovery.
   class BulkDownloader
-    def initialize(client: HttpClient.new, output_dir: "archive")
+    def initialize(client: HttpClient.new, output_dir: "archive",
+                   cdx_api: nil)
       @client = client
       @output_dir = output_dir
+      @cdx_api = cdx_api
     end
 
     def download(url, from: nil, to: nil, resume: false)
@@ -35,7 +37,7 @@ module Archaeo
     private
 
     def fetch_snapshots(url, from:, to:)
-      cdx = CdxApi.new(client: @client)
+      cdx = @cdx_api || CdxApi.new(client: @client)
       options = {}
       options[:from] = from if from
       options[:to] = to if to
@@ -53,6 +55,27 @@ module Archaeo
       File.binwrite(filename, page.content)
     end
 
+    EXTENSION_MAP = {
+      "text/html" => ".html",
+      "text/css" => ".css",
+      "application/javascript" => ".js",
+      "application/json" => ".json",
+      "application/pdf" => ".pdf",
+      "image/png" => ".png",
+      "image/jpeg" => ".jpg",
+      "image/gif" => ".gif",
+      "image/svg+xml" => ".svg",
+      "image/webp" => ".webp",
+      "font/woff2" => ".woff2",
+      "font/woff" => ".woff",
+      "video/mp4" => ".mp4",
+      "audio/mpeg" => ".mp3",
+    }.freeze
+
+    def extension_for(snapshot)
+      EXTENSION_MAP[snapshot.mimetype] || ".bin"
+    end
+
     def build_filename(snapshot)
       ts = snapshot.timestamp.to_s
       safe_path = snapshot.original_url
@@ -62,7 +85,7 @@ module Archaeo
       safe_path = safe_path[0..-2] if safe_path.end_with?(File::SEPARATOR)
       safe_path = "#{safe_path}index" if safe_path.empty?
 
-      File.join(@output_dir, safe_path, "#{ts}.html")
+      File.join(@output_dir, safe_path, "#{ts}#{extension_for(snapshot)}")
     end
   end
 end

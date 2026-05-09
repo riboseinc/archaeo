@@ -42,6 +42,11 @@ module Archaeo
 
     def parse_response(response, url)
       unless response.status == 200
+        if response.status == 503
+          raise RateLimitError,
+                "Availability API rate limited (HTTP 503)"
+        end
+
         raise InvalidResponse,
               "Availability API returned HTTP #{response.status}"
       end
