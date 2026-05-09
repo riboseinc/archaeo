@@ -18,14 +18,20 @@ class FakeHttpClient
   def initialize(responses = [])
     @responses = Array(responses)
     @index = 0
+    @all_urls = []
   end
 
   def get(url, headers: {})
     @last_url = url
     @last_headers = headers
+    @all_urls << url
     response = @responses[@index] || @responses.last
     @index += 1
     response
+  end
+
+  def all_urls
+    @all_urls
   end
 
   def self.response(status:, body: "", headers: {})

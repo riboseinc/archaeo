@@ -6,10 +6,11 @@ require "zlib"
 require "stringio"
 
 module Archaeo
-  # HTTP client with retry logic, gzip decompression, and
-  # rotating realistic User-Agent profiles.
+  # HTTP client with retry logic, gzip decompression,
+  # rotating realistic User-Agent profiles, and connection pooling.
   #
-  # Injected via constructor for testability.
+  # Injected via constructor for testability. Connections are reused
+  # across requests to the same host for improved performance.
   class HttpClient
     DEFAULT_TIMEOUT = 30
     DEFAULT_MAX_RETRIES = 3
@@ -21,6 +22,8 @@ module Archaeo
       IOError,
       Errno::ECONNRESET,
       Errno::ECONNREFUSED,
+      EOFError,
+      Errno::EPIPE,
     ].freeze
 
     USER_AGENT_PROFILES = [
@@ -60,11 +63,25 @@ module Archaeo
       @max_retries = max_retries
       @retry_delay = retry_delay
       @user_agent = user_agent
+      @connections = {}
+      @mutex = Mutex.new
     end
 
     def get(url, headers: {})
       merged = default_headers.merge(headers)
-      attempt_with_retries(url, merged)
+      uri = URI(url)
+      attempt_with_retries(uri, merged)
+    end
+
+    def shutdown
+      @mutex.synchronize do
+        @connections.each_value do |http|
+          http.finish
+        rescue StandardError
+          nil
+        end
+        @connections.clear
+      end
     end
 
     private
@@ -73,13 +90,52 @@ module Archaeo
       @user_agent || USER_AGENT_PROFILES.sample
     end
 
-    def attempt_with_retries(url, headers)
+    def connection_key(uri)
+      "#{uri.scheme}://#{uri.host}:#{uri.port}"
+    end
+
+    def connection_for(uri)
+      key = connection_key(uri)
+      @mutex.synchronize do
+        http = @connections[key]
+        if http && !http.active?
+          @connections.delete(key)
+          http = nil
+        end
+        @connections[key] = build_connection(uri) unless http
+        @connections[key]
+      end
+    end
+
+    def build_connection(uri)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = uri.scheme == "https"
+      http.read_timeout = @timeout
+      http.open_timeout = @timeout
+      http.start
+      http
+    end
+
+    def invalidate_connection(uri)
+      key = connection_key(uri)
+      @mutex.synchronize do
+        http = @connections.delete(key)
+        begin
+          http&.finish
+        rescue StandardError
+          nil
+        end
+      end
+    end
+
+    def attempt_with_retries(uri, headers)
       retries = 0
       begin
-        execute_get(url, headers)
+        execute_with_connection(uri, headers)
       rescue *TRANSIENT_ERRORS => e
         retries += 1
         raise_if_exhausted(retries, e)
+        invalidate_connection(uri)
         sleep(@retry_delay * retries)
         retry
       end
@@ -92,6 +148,19 @@ module Archaeo
             "Failed after #{retries} retries: #{error.message}"
     end
 
+    def execute_with_connection(uri, headers)
+      http = connection_for(uri)
+      request = Net::HTTP::Get.new(uri)
+      headers.each { |k, v| request[k] = v }
+      raw = http.request(request)
+      build_response(raw)
+    rescue *TRANSIENT_ERRORS
+      raise
+    rescue StandardError
+      invalidate_connection(uri)
+      raise
+    end
+
     def default_headers
       {
         "User-Agent" => select_user_agent,
@@ -101,19 +170,6 @@ module Archaeo
         "Accept-Language" => "en-US,en;q=0.9",
         "Connection" => "keep-alive",
       }
-    end
-
-    def execute_get(url, headers)
-      uri = URI(url)
-      Net::HTTP.start(uri.host, uri.port,
-                      use_ssl: uri.scheme == "https",
-                      read_timeout: @timeout,
-                      open_timeout: @timeout) do |http|
-        request = Net::HTTP::Get.new(uri)
-        headers.each { |k, v| request[k] = v }
-        raw = http.request(request)
-        build_response(raw)
-      end
     end
 
     def build_response(raw)
