@@ -1,10 +1,19 @@
 # frozen_string_literal: true
 
+require "csv"
+require "json"
 require "thor"
 
 module Archaeo
   # Command-line interface powered by Thor.
   class Cli < Thor
+    map %w[--version -v] => :version
+
+    desc "version", "Show archaeo version"
+    def version
+      puts "archaeo #{VERSION}"
+    end
+
     desc "snapshots URL", "List archived snapshots for a URL"
     option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
     option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
@@ -14,12 +23,16 @@ module Archaeo
     option :collapse, type: :array, desc: "CDX collapse fields"
     option :sort, desc: "Sort order (default, closest, reverse)"
     option :limit, type: :numeric, desc: "Max snapshots to return"
+    option :format, desc: "Output format (table, json, csv)",
+                    default: "table"
     def snapshots(url)
       cdx = CdxApi.new
       opts = build_cdx_options(options)
-      cdx.snapshots(url, **opts).each do |snap|
-        puts "#{snap.timestamp}  #{snap.status_code}  " \
-             "#{snap.original_url}"
+      snaps = cdx.snapshots(url, **opts).to_a
+      case options[:format]
+      when "json" then output_json(snaps)
+      when "csv" then output_csv(snaps)
+      else output_table(snaps)
       end
     end
 
@@ -64,12 +77,46 @@ module Archaeo
          "Fetch archived content for a URL at a timestamp"
     option :identity, type: :boolean, default: false,
                       desc: "Fetch raw (identity) content"
+    option :output, desc: "Write content to file"
     def fetch(url, timestamp)
       page = Fetcher.new.fetch(
         url, timestamp: timestamp,
              identity: options[:identity]
       )
-      $stdout.write(page.content)
+
+      if options[:output]
+        write_output(options[:output], page.content)
+      else
+        $stdout.write(page.content)
+      end
+    end
+
+    desc "download URL", "Download all archived snapshots of a URL"
+    option :output, desc: "Output directory", default: "archive"
+    option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
+    option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
+    option :resume, type: :boolean, default: false,
+                    desc: "Resume interrupted download"
+    def download(url)
+      downloader = BulkDownloader.new(output_dir: options[:output])
+
+      downloader.download(
+        url,
+        from: options[:from],
+        to: options[:to],
+        resume: options[:resume],
+      ) do |current, total, snap|
+        warn "[#{current}/#{total}] " \
+             "#{snap.timestamp} #{snap.original_url}"
+      end
+    end
+
+    desc "known_urls DOMAIN",
+         "List all known URLs for a domain"
+    def known_urls(domain)
+      CdxApi.new.known_urls(domain).each do |u|
+        puts u
+      end
     end
 
     CDX_OPTION_MAP = {
@@ -89,6 +136,41 @@ module Archaeo
         value = opts[cli_key]
         result[api_key] = value if value
       end
+    end
+
+    def output_table(snaps)
+      snaps.each do |snap|
+        puts "#{snap.timestamp}  #{snap.status_code}  " \
+             "#{snap.original_url}"
+      end
+    end
+
+    def output_json(snaps)
+      data = snaps.map do |snap|
+        {
+          timestamp: snap.timestamp.to_s,
+          status_code: snap.status_code,
+          url: snap.original_url,
+          archive_url: snap.archive_url,
+        }
+      end
+      puts JSON.generate(data)
+    end
+
+    def output_csv(snaps)
+      puts CSV.generate do |csv|
+        csv << %w[timestamp status_code url archive_url]
+        snaps.each do |snap|
+          csv << [snap.timestamp.to_s, snap.status_code,
+                  snap.original_url, snap.archive_url]
+        end
+      end
+    end
+
+    def write_output(path, content)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.binwrite(path, content)
+      warn "Written to #{path}"
     end
   end
 end

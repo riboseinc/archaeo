@@ -5,6 +5,18 @@ require "spec_helper"
 RSpec.describe Archaeo::Cli do
   subject(:cli) { described_class.new }
 
+  describe "version" do
+    it "shows the version" do
+      expect { described_class.start(%w[version]) }
+        .to output(/archaeo #{Archaeo::VERSION}/o).to_stdout
+    end
+
+    it "shows version with --version flag" do
+      expect { described_class.start(%w[--version]) }
+        .to output(/archaeo #{Archaeo::VERSION}/o).to_stdout
+    end
+  end
+
   describe "snapshots" do
     it "lists snapshots for a URL" do
       header = Archaeo::CdxApi::ALL_FIELDS
@@ -25,6 +37,27 @@ RSpec.describe Archaeo::Cli do
 
       expect { cli.snapshots("example.com") }
         .to output(/20220113130051.*200.*example.com/).to_stdout
+    end
+
+    it "outputs JSON format" do
+      header = Archaeo::CdxApi::ALL_FIELDS
+      rows = [
+        ["com,example)/", "20220113130051",
+         "https://example.com/", "text/html",
+         "200", "ABC", "12345"],
+      ]
+      body = JSON.generate([header] + rows)
+      responses = [
+        FakeHttpClient.response(status: 200, body: body),
+      ]
+
+      cdx = Archaeo::CdxApi.new(
+        client: FakeHttpClient.new(responses),
+      )
+      allow(Archaeo::CdxApi).to receive(:new).and_return(cdx)
+
+      expect { described_class.start(%w[snapshots --format json example.com]) }
+        .to output(/"timestamp"/).to_stdout
     end
   end
 
@@ -162,6 +195,16 @@ RSpec.describe Archaeo::Cli do
     it "shows help for save command" do
       expect { described_class.start(%w[help save]) }
         .to output(/Save a URL/).to_stdout
+    end
+
+    it "shows help for download command" do
+      expect { described_class.start(%w[help download]) }
+        .to output(/Download all archived snapshots/).to_stdout
+    end
+
+    it "shows help for known_urls command" do
+      expect { described_class.start(%w[help known_urls]) }
+        .to output(/List all known URLs/).to_stdout
     end
   end
 end
