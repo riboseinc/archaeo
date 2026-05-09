@@ -72,7 +72,7 @@ RSpec.describe Archaeo::Snapshot do
       expect(other).to eq(same)
     end
 
-    it "produces stable hashes for identical timestamps" do
+    it "produces stable hashes for identical snapshots" do
       snap1 = described_class.new(
         urlkey: "com,example)/",
         timestamp: "20220113130051",
@@ -83,7 +83,36 @@ RSpec.describe Archaeo::Snapshot do
         timestamp: "20220113130051",
         original_url: "https://example.com/",
       )
-      expect(snap1.timestamp.hash).to eq(snap2.timestamp.hash)
+      expect(snap1.hash).to eq(snap2.hash)
+    end
+  end
+
+  describe "#blocked?" do
+    it "returns true when status code is -1" do
+      snap = described_class.new(
+        urlkey: "com,example)/",
+        timestamp: "20220113130051",
+        original_url: "https://example.com/",
+        status_code: "-1",
+      )
+      expect(snap).to be_blocked
+    end
+
+    it "returns false for normal status codes" do
+      expect(snapshot).not_to be_blocked
+    end
+  end
+
+  describe "#to_a" do
+    it "returns all field values in order" do
+      arr = snapshot.to_a
+      expect(arr[0]).to eq("com,example)/")
+      expect(arr[1]).to be_a(Archaeo::Timestamp)
+      expect(arr[2]).to eq("https://example.com/")
+      expect(arr[3]).to eq("text/html")
+      expect(arr[4]).to eq(200)
+      expect(arr[5]).to eq("SHA1-abc123")
+      expect(arr[6]).to eq(12345)
     end
   end
 end

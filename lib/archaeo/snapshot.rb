@@ -9,6 +9,8 @@ module Archaeo
     FIELDS = %i[urlkey timestamp original_url
                 mimetype status_code digest length].freeze
 
+    BLOCKED_STATUS = -1
+
     attr_reader(*FIELDS)
 
     def initialize(urlkey:, timestamp:, original_url:,
@@ -27,14 +29,22 @@ module Archaeo
       ArchiveUrl.new(original_url, timestamp: @timestamp).to_s
     end
 
+    def blocked?
+      @status_code == BLOCKED_STATUS
+    end
+
+    def to_a
+      [@urlkey, @timestamp, @original_url, @mimetype,
+       @status_code, @digest, @length]
+    end
+
     def ==(other)
-      other.is_a?(self.class) &&
-        FIELDS.all? { |f| send(f) == other.send(f) }
+      other.is_a?(self.class) && to_a == other.to_a
     end
     alias_method :eql?, :==
 
     def hash
-      FIELDS.map { |f| send(f) }.hash
+      to_a.hash
     end
   end
 end
