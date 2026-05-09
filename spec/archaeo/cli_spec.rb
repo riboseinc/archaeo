@@ -186,6 +186,128 @@ RSpec.describe Archaeo::Cli do
     end
   end
 
+  describe "download" do
+    it "downloads snapshots to output directory" do
+      tmpdir = Dir.mktmpdir
+      begin
+        header = Archaeo::CdxApi::ALL_FIELDS
+        rows = [
+          ["com,example)/", "20220113130051",
+           "https://example.com/", "text/html",
+           "200", "ABC", "12345"],
+        ]
+        cdx_body = JSON.generate([header] + rows)
+        fetch_body = "<html>archived</html>"
+        responses = [
+          FakeHttpClient.response(status: 200, body: cdx_body),
+          FakeHttpClient.response(
+            status: 200,
+            headers: { "content-type" => "text/html" },
+            body: fetch_body,
+          ),
+        ]
+        fake = FakeHttpClient.new(responses)
+        cdx = Archaeo::CdxApi.new(client: fake)
+        allow(Archaeo::CdxApi).to receive(:new).and_return(cdx)
+
+        downloader = Archaeo::BulkDownloader.new(
+          client: fake, output_dir: tmpdir,
+        )
+        allow(Archaeo::BulkDownloader).to receive(:new)
+          .and_return(downloader)
+
+        expect do
+          described_class.start(
+            %W[download --output #{tmpdir} example.com],
+          )
+        end.to output.to_stderr
+
+        files = Dir.glob(File.join(tmpdir, "**", "*.html"))
+        expect(files.length).to eq(1)
+      ensure
+        FileUtils.rm_rf(tmpdir)
+      end
+    end
+  end
+
+  describe "known_urls command" do
+    it "lists known URLs for a domain" do
+      header = Archaeo::CdxApi::ALL_FIELDS
+      rows = [
+        ["com,example)/", "20220113130051",
+         "https://example.com/", "text/html",
+         "200", "ABC", "12345"],
+      ]
+      body = JSON.generate([header] + rows)
+      responses = [
+        FakeHttpClient.response(status: 200, body: body),
+      ]
+
+      cdx = Archaeo::CdxApi.new(
+        client: FakeHttpClient.new(responses),
+      )
+      allow(Archaeo::CdxApi).to receive(:new).and_return(cdx)
+
+      expect { described_class.start(%w[known_urls example.com]) }
+        .to output(/example.com/).to_stdout
+    end
+  end
+
+  describe "fetch with --output" do
+    it "writes fetched content to a file" do
+      tmpdir = Dir.mktmpdir
+      begin
+        outfile = File.join(tmpdir, "page.html")
+        responses = [
+          FakeHttpClient.response(
+            status: 200,
+            headers: { "content-type" => "text/html" },
+            body: "<html>saved</html>",
+          ),
+        ]
+
+        fetcher = Archaeo::Fetcher.new(
+          client: FakeHttpClient.new(responses),
+        )
+        allow(Archaeo::Fetcher).to receive(:new).and_return(fetcher)
+
+        expect do
+          described_class.start(
+            %W[fetch --output #{outfile} https://example.com/ 20220615120000],
+          )
+        end.to output.to_stderr
+
+        expect(File.read(outfile)).to eq("<html>saved</html>")
+      ensure
+        FileUtils.rm_rf(tmpdir)
+      end
+    end
+  end
+
+  describe "snapshots --format csv" do
+    it "outputs CSV format" do
+      header = Archaeo::CdxApi::ALL_FIELDS
+      rows = [
+        ["com,example)/", "20220113130051",
+         "https://example.com/", "text/html",
+         "200", "ABC", "12345"],
+      ]
+      body = JSON.generate([header] + rows)
+      responses = [
+        FakeHttpClient.response(status: 200, body: body),
+      ]
+
+      cdx = Archaeo::CdxApi.new(
+        client: FakeHttpClient.new(responses),
+      )
+      allow(Archaeo::CdxApi).to receive(:new).and_return(cdx)
+
+      expect do
+        described_class.start(%w[snapshots --format csv example.com])
+      end.to output(/timestamp/).to_stdout
+    end
+  end
+
   describe "help" do
     it "shows help for snapshots command" do
       expect { described_class.start(%w[help snapshots]) }

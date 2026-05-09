@@ -45,4 +45,31 @@ RSpec.describe Archaeo::HttpClient do
       expect(response.status).to eq(404)
     end
   end
+
+  describe "#shutdown" do
+    it "does not raise when no connections exist" do
+      fresh = described_class.new
+      expect { fresh.shutdown }.not_to raise_error
+    end
+  end
+
+  describe "retry behavior" do
+    it "raises MaximumRetriesExceeded after exhausting retries" do
+      short_client = described_class.new(
+        timeout: 1, max_retries: 1, retry_delay: 0,
+      )
+      expect do
+        short_client.get("https://192.0.2.1/")
+      end.to raise_error(Archaeo::MaximumRetriesExceeded)
+    end
+  end
+
+  describe "gzip decompression", :network do
+    it "decompresses gzip responses" do
+      response = client.get("https://httpbin.org/gzip")
+      expect(response.status).to eq(200)
+      body = JSON.parse(response.body)
+      expect(body["gzipped"]).to be true
+    end
+  end
 end
