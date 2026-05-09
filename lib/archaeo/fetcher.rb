@@ -14,11 +14,19 @@ module Archaeo
     end
 
     def fetch(url, timestamp:, identity: false)
+      url = UrlNormalizer.normalize(url)
       ts = Timestamp.coerce(timestamp)
       archive_url = ArchiveUrl.new(url, timestamp: ts,
                                         identity: identity)
       response = follow_redirects(archive_url.to_s)
       build_page(response, archive_url.to_s, url, ts)
+    end
+
+    def fetch_page_with_assets(url, timestamp:)
+      page = fetch(url, timestamp: timestamp)
+      assets = AssetExtractor.new(page.content,
+                                  base_url: page.archive_url).extract
+      PageBundle.new(page: page, assets: assets)
     end
 
     private

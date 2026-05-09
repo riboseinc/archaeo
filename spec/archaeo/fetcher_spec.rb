@@ -8,6 +8,20 @@ RSpec.describe Archaeo::Fetcher do
   let(:timestamp) { Archaeo::Timestamp.new(year: 2022, month: 6, day: 15) }
 
   describe "#fetch" do
+    context "when URL has surrounding whitespace" do
+      before do
+        @responses = [
+          FakeHttpClient.response(status: 200, body: "ok"),
+        ]
+      end
+
+      it "normalizes the URL before fetching" do
+        fetcher.fetch(" https://example.com/ ",
+                      timestamp: timestamp)
+        expect(fake_client.last_url).to include("example.com")
+      end
+    end
+
     context "with a successful response" do
       before do
         @responses = [
@@ -155,6 +169,40 @@ RSpec.describe Archaeo::Fetcher do
         )
         expect(result.status_code).to eq(200)
         expect(fake_client.last_url).to include("%C3%84")
+      end
+    end
+  end
+
+  describe "#fetch_page_with_assets" do
+    context "with a page containing assets" do
+      before do
+        @responses = [
+          FakeHttpClient.response(
+            status: 200,
+            headers: { "content-type" => "text/html" },
+            body: '<html><head><link rel="stylesheet" href="/style.css">' \
+                  '<script src="/app.js"></script></head>' \
+                  '<body><img src="/logo.png"></body></html>',
+          ),
+        ]
+      end
+
+      it "returns a PageBundle with page and assets" do
+        bundle = fetcher.fetch_page_with_assets(
+          "https://example.com/", timestamp: timestamp
+        )
+        expect(bundle).to be_a(Archaeo::PageBundle)
+        expect(bundle.page).to be_a(Archaeo::Page)
+        expect(bundle.assets).to be_a(Archaeo::AssetList)
+      end
+
+      it "extracts CSS, JS, and image assets" do
+        bundle = fetcher.fetch_page_with_assets(
+          "https://example.com/", timestamp: timestamp
+        )
+        expect(bundle.assets.css.size).to eq(1)
+        expect(bundle.assets.js.size).to eq(1)
+        expect(bundle.assets.images.size).to eq(1)
       end
     end
   end

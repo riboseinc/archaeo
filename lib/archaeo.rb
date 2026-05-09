@@ -19,6 +19,7 @@ module Archaeo
   autoload :ArchiveUrl, "archaeo/archive_url"
   autoload :Snapshot, "archaeo/snapshot"
   autoload :Page, "archaeo/page"
+  autoload :PageBundle, "archaeo/page_bundle"
   autoload :SaveResult, "archaeo/save_result"
   autoload :AvailabilityResult, "archaeo/availability_result"
   autoload :UrlNormalizer, "archaeo/url_normalizer"
