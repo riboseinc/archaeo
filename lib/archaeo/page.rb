@@ -26,6 +26,10 @@ module Archaeo
       @content ||= transcode(@raw_content)
     end
 
+    def size
+      content.length
+    end
+
     def encoding
       @encoding ||= detect_encoding
     end

@@ -115,4 +115,33 @@ RSpec.describe Archaeo::Snapshot do
       expect(arr[6]).to eq(12345)
     end
   end
+
+  describe "#to_h" do
+    it "returns a hash with named fields" do
+      h = snapshot.to_h
+      expect(h[:urlkey]).to eq("com,example)/")
+      expect(h[:timestamp]).to be_a(Archaeo::Timestamp)
+      expect(h[:original_url]).to eq("https://example.com/")
+      expect(h[:mimetype]).to eq("text/html")
+      expect(h[:status_code]).to eq(200)
+      expect(h[:digest]).to eq("SHA1-abc123")
+      expect(h[:length]).to eq(12345)
+    end
+  end
+
+  describe "#success?" do
+    it "returns true for status code 200" do
+      expect(snapshot).to be_success
+    end
+
+    it "returns false for other status codes" do
+      snap = described_class.new(
+        urlkey: "com,example)/",
+        timestamp: "20220113130051",
+        original_url: "https://example.com/",
+        status_code: "404",
+      )
+      expect(snap).not_to be_success
+    end
+  end
 end

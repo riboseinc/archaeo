@@ -22,6 +22,10 @@ RSpec.describe Archaeo::Page do
       expect(subject.content).to eq("<html>Hello</html>")
     end
 
+    it "exposes size" do
+      expect(subject.size).to eq(18)
+    end
+
     it "exposes content_type" do
       expect(subject.content_type).to eq("text/html")
     end

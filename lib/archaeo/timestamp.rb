@@ -62,6 +62,14 @@ module Archaeo
       @to_time.strftime(FORMAT)
     end
 
+    def to_date
+      Date.new(year, month, day)
+    end
+
+    def to_i
+      @to_time.to_i
+    end
+
     def <=>(other)
       return nil unless other.is_a?(self.class)
 
