@@ -17,6 +17,7 @@ module Archaeo
     end
 
     def save(url)
+      url = UrlNormalizer.normalize(url)
       save_url = "#{ENDPOINT}/#{url}"
       start_time = Time.now.utc
       attempt_save(save_url, start_time, url)

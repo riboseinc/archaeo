@@ -15,6 +15,7 @@ module Archaeo
     end
 
     def download(url, from: nil, to: nil, resume: false)
+      url = UrlNormalizer.normalize(url)
       FileUtils.mkdir_p(@output_dir)
       state = DownloadState.new(@output_dir)
 
