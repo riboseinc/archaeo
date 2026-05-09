@@ -158,13 +158,14 @@ module Archaeo
     end
 
     def output_csv(snaps)
-      puts CSV.generate do |csv|
+      csv = CSV.generate do |csv|
         csv << %w[timestamp status_code url archive_url]
         snaps.each do |snap|
           csv << [snap.timestamp.to_s, snap.status_code,
                   snap.original_url, snap.archive_url]
         end
       end
+      puts csv
     end
 
     def write_output(path, content)
