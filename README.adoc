@@ -1,0 +1,186 @@
+= Archaeo
+
+== Purpose
+
+Archaeo is a Ruby client for the Internet Archive's https://web.archive.org[Wayback Machine] APIs.
+
+It provides a model-driven interface for querying archived snapshots, checking availability, saving URLs, and fetching archived content.
+
+== Installation
+
+[source,bash]
+----
+gem install archaeo
+----
+
+Or add to your Gemfile:
+
+[source,ruby]
+----
+gem "archaeo"
+----
+
+== Quick Start
+
+[source,ruby]
+----
+require "archaeo"
+----
+
+=== Query Snapshots (CDX API)
+
+[source,ruby]
+----
+cdx = Archaeo::CdxApi.new
+
+# Enumerate all snapshots
+cdx.snapshots("example.com").each do |snapshot|
+  puts snapshot.timestamp
+  puts snapshot.original_url
+  puts snapshot.archive_url
+end
+
+# Find specific snapshots
+oldest = cdx.oldest("example.com")
+newest = cdx.newest("example.com")
+near   = cdx.near("example.com", timestamp: "20220101")
+
+# Filter by time
+before = cdx.before("example.com", timestamp: "20220101")
+after  = cdx.after("example.com", timestamp: "20220101")
+----
+
+=== Check Availability
+
+[source,ruby]
+----
+api = Archaeo::AvailabilityApi.new
+
+result = api.near("example.com")
+result.available?   # => true/false
+result.archive_url  # => "https://web.archive.org/web/..."
+result.timestamp    # => Archaeo::Timestamp
+
+api.available?("example.com")  # => true/false
+----
+
+=== Save a URL (SavePageNow)
+
+[source,ruby]
+----
+save = Archaeo::SaveApi.new
+result = save.save("https://example.com/")
+result.archive_url  # => "https://web.archive.org/web/..."
+result.timestamp    # => Archaeo::Timestamp
+result.cached?      # => true if already archived
+----
+
+=== Fetch Archived Content
+
+[source,ruby]
+----
+fetcher = Archaeo::Fetcher.new
+page = fetcher.fetch("https://example.com/",
+                     timestamp: "20220615000000")
+
+page.content        # => "<html>...</html>"
+page.content_type   # => "text/html"
+page.status_code    # => 200
+page.archive_url    # => full archive URL
+
+# Raw (identity) mode -- no Wayback Machine rewriting
+page = fetcher.fetch("https://example.com/",
+                     timestamp: "20220615000000",
+                     identity: true)
+----
+
+=== Timestamps
+
+[source,ruby]
+----
+# Create from components
+ts = Archaeo::Timestamp.new(year: 2022, month: 6, day: 15)
+
+# Parse from Wayback format
+ts = Archaeo::Timestamp.parse("20220615120000")
+
+# From Time object
+ts = Archaeo::Timestamp.from_time(Time.now)
+
+# Current time
+ts = Archaeo::Timestamp.now
+
+# Format as 14-digit string
+ts.to_s  # => "20220615000000"
+
+# Comparison
+ts1 < ts2   # => true/false
+----
+
+=== Command-Line Interface
+
+[source,bash]
+----
+# List snapshots
+archaeo snapshots example.com
+
+# Find closest snapshot
+archaeo near example.com 20220101
+
+# Check availability
+archaeo available example.com
+
+# Save a URL
+archaeo save https://example.com/
+
+# Fetch archived content
+archaeo fetch https://example.com/ 20220615120000
+
+# Fetch raw (identity) content
+archaeo fetch --identity https://example.com/ 20220615120000
+----
+
+== Architecture
+
+Archaeo follows a model-driven, OOP design:
+
+[cols="1,2,1"]
+|===
+| Layer | Classes | Purpose
+
+| *Models*
+| `Timestamp`, `ArchiveUrl`, `Snapshot`, `Page`, `SaveResult`, `AvailabilityResult`
+| Domain value objects
+
+| *APIs*
+| `CdxApi`, `AvailabilityApi`, `SaveApi`
+| Query and mutate the archive
+
+| *Operations*
+| `Fetcher`
+| Download archived content
+
+| *Infrastructure*
+| `HttpClient`
+| HTTP transport with retries and gzip
+|===
+
+All API classes accept an `HttpClient` via dependency injection for testability.
+
+== Development
+
+[source,bash]
+----
+bundle install
+bundle exec rspec
+bundle exec rubocop
+----
+
+== Contributing
+
+Bug reports and pull requests are welcome on GitHub at https://github.com/riboseinc/archaeo[].
+
+== License
+
+MIT License.
+See link:LICENSE[LICENSE] for details.

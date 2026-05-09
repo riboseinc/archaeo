@@ -1,0 +1,89 @@
+# frozen_string_literal: true
+
+require "spec_helper"
+
+RSpec.describe Archaeo::Snapshot do
+  subject(:snapshot) do
+    described_class.new(
+      urlkey: "com,example)/",
+      timestamp: "20220113130051",
+      original_url: "https://example.com/",
+      mimetype: "text/html",
+      status_code: "200",
+      digest: "SHA1-abc123",
+      length: "12345",
+    )
+  end
+
+  describe "#initialize" do
+    it "stores all fields" do
+      expect(snapshot.urlkey).to eq("com,example)/")
+      expect(snapshot.original_url).to eq("https://example.com/")
+      expect(snapshot.mimetype).to eq("text/html")
+      expect(snapshot.status_code).to eq(200)
+      expect(snapshot.digest).to eq("SHA1-abc123")
+      expect(snapshot.length).to eq(12345)
+    end
+
+    it "converts timestamp string to Timestamp object" do
+      expect(snapshot.timestamp).to be_a(Archaeo::Timestamp)
+      expect(snapshot.timestamp.year).to eq(2022)
+    end
+
+    it "converts numeric fields to integers" do
+      expect(snapshot.status_code).to be_a(Integer)
+      expect(snapshot.length).to be_a(Integer)
+    end
+  end
+
+  describe "#archive_url" do
+    it "constructs the Wayback Machine archive URL" do
+      expect(snapshot.archive_url)
+        .to eq("https://web.archive.org/web/20220113130051/https://example.com/")
+    end
+  end
+
+  it "accepts Timestamp objects for timestamp" do
+    ts = Archaeo::Timestamp.new(year: 2020, month: 6, day: 15)
+    snap = described_class.new(
+      urlkey: "com,example)/",
+      timestamp: ts,
+      original_url: "https://example.com/",
+      mimetype: "text/html",
+      status_code: 200,
+      digest: "SHA1-abc",
+      length: 100,
+    )
+    expect(snap.timestamp).to equal(ts)
+  end
+
+  describe "equality and hash" do
+    it "considers identical snapshots equal" do
+      other = described_class.new(
+        urlkey: "com,example)/",
+        timestamp: "20220113130051",
+        original_url: "https://example.com/",
+      )
+      same = described_class.new(
+        urlkey: "com,example)/",
+        timestamp: "20220113130051",
+        original_url: "https://example.com/",
+      )
+      expect(other).to eq(same)
+    end
+
+    it "produces stable hashes for identical timestamps" do
+      snap1 = described_class.new(
+        urlkey: "com,example)/",
+        timestamp: "20220113130051",
+        original_url: "https://example.com/",
+      )
+      snap2 = described_class.new(
+        urlkey: "com,example)/",
+        timestamp: "20220113130051",
+        original_url: "https://example.com/",
+      )
+      expect(snap1.timestamp.hash).to eq(snap2.timestamp.hash)
+    end
+  end
+end

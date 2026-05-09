@@ -1,0 +1,241 @@
+module Archaeo
+  VERSION: String
+
+  class Error < StandardError
+  end
+
+  class NoSnapshotFound < Error
+  end
+
+  class BlockedSiteError < Error
+  end
+
+  class RateLimitError < Error
+  end
+
+  class MaximumRetriesExceeded < Error
+  end
+
+  class ArchiveNotAvailable < Error
+  end
+
+  class InvalidResponse < Error
+  end
+
+  class SaveFailed < Error
+  end
+
+  class Timestamp
+    include Comparable
+
+    FORMAT: String
+
+    attr_reader to_time: Time
+
+    def initialize: (
+      year: Integer,
+      ?month: Integer,
+      ?day: Integer,
+      ?hour: Integer,
+      ?minute: Integer,
+      ?second: Integer
+    ) -> void
+
+    def self.parse: (String string) -> Timestamp
+    def self.from_time: (Time time) -> Timestamp
+    def self.now: () -> Timestamp
+    def self.coerce: (Timestamp | String | Time value) -> Timestamp
+
+    def to_s: () -> String
+    def <=>: (untyped other) -> String?
+
+    attr_reader year: Integer
+    attr_reader month: Integer
+    attr_reader day: Integer
+    attr_reader hour: Integer
+    attr_reader minute: Integer
+    attr_reader second: Integer
+  end
+
+  class ArchiveUrl
+    BASE: String
+    TIMESTAMP_RE: Regexp
+
+    attr_reader original_url: String
+    attr_reader timestamp: Timestamp
+
+    def initialize: (
+      String original_url,
+      timestamp: Timestamp | String,
+      ?identity: bool
+    ) -> void
+
+    def self.parse: (String string) -> ArchiveUrl
+
+    def identity?: () -> bool
+    def to_s: () -> String
+  end
+
+  class Snapshot
+    FIELDS: Array[Symbol]
+
+    attr_reader urlkey: String
+    attr_reader timestamp: Timestamp
+    attr_reader original_url: String
+    attr_reader mimetype: String
+    attr_reader status_code: Integer
+    attr_reader digest: String
+    attr_reader length: Integer
+
+    def initialize: (
+      urlkey: String,
+      timestamp: Timestamp | String,
+      original_url: String,
+      ?mimetype: String?,
+      ?status_code: Integer?,
+      ?digest: String?,
+      ?length: Integer?
+    ) -> void
+
+    def archive_url: () -> String
+  end
+
+  class Page
+    attr_reader content: String
+    attr_reader content_type: String
+    attr_reader status_code: Integer
+    attr_reader archive_url: String
+    attr_reader original_url: String
+    attr_reader timestamp: Timestamp
+
+    def initialize: (
+      content: String,
+      content_type: String,
+      status_code: Integer,
+      archive_url: String,
+      original_url: String,
+      timestamp: Timestamp | String
+    ) -> void
+  end
+
+  class SaveResult
+    attr_reader archive_url: String
+    attr_reader timestamp: Timestamp
+
+    def initialize: (
+      archive_url: String,
+      timestamp: Timestamp,
+      cached: bool
+    ) -> void
+
+    def cached?: () -> bool
+  end
+
+  class AvailabilityResult
+    attr_reader url: String
+    attr_reader archive_url: String?
+    attr_reader timestamp: Timestamp?
+
+    def initialize: (
+      url: String,
+      available: bool,
+      ?archive_url: String?,
+      ?timestamp: Timestamp?
+    ) -> void
+
+    def available?: () -> bool
+  end
+
+  class HttpClient
+    DEFAULT_TIMEOUT: Integer
+    DEFAULT_MAX_RETRIES: Integer
+    DEFAULT_RETRY_DELAY: Integer
+    TRANSIENT_ERRORS: Array[singleton(StandardError)]
+    USER_AGENT_PROFILES: Array[String]
+
+    class Response
+      attr_reader status: Integer
+      attr_reader headers: Hash[String, String]
+      attr_reader body: String
+
+      def initialize: (
+        status: Integer,
+        headers: Hash[String, String],
+        body: String
+      ) -> void
+    end
+
+    def initialize: (
+      ?timeout: Integer,
+      ?max_retries: Integer,
+      ?retry_delay: Integer,
+      ?user_agent: String?
+    ) -> void
+
+    def get: (String url, ?headers: Hash[String, String]) -> Response
+  end
+
+  class CdxApi
+    ENDPOINT: String
+    ALL_FIELDS: Array[String]
+    MATCH_TYPES: Array[String]
+    SORT_ORDERS: Array[String]
+    DEFAULT_LIMIT: Integer
+    SCALAR_PARAMS: Hash[Symbol, String]
+
+    def initialize: (?client: HttpClient) -> void
+
+    def snapshots: (
+      String url,
+      **untyped options
+    ) -> Enumerator[Snapshot, void]
+
+    def near: (String url, timestamp: Timestamp | String) -> Snapshot
+    def oldest: (String url) -> Snapshot
+    def newest: (String url) -> Snapshot
+
+    def before: (String url, timestamp: Timestamp | String) -> Snapshot
+    def after: (String url, timestamp: Timestamp | String) -> Snapshot
+  end
+
+  class AvailabilityApi
+    ENDPOINT: String
+
+    def initialize: (?client: HttpClient) -> void
+
+    def near: (
+      String url,
+      ?timestamp: Timestamp?
+    ) -> AvailabilityResult
+
+    def oldest: (String url) -> AvailabilityResult
+    def newest: (String url) -> AvailabilityResult
+    def available?: (String url) -> bool
+  end
+
+  class SaveApi
+    ENDPOINT: String
+    DEFAULT_MAX_TRIES: Integer
+    TIMESTAMP_RE: Regexp
+
+    def initialize: (
+      ?client: HttpClient,
+      ?max_tries: Integer
+    ) -> void
+
+    def save: (String url) -> SaveResult
+  end
+
+  class Fetcher
+    MAX_REDIRECTS: Integer
+    BASE: String
+
+    def initialize: (?client: HttpClient) -> void
+
+    def fetch: (
+      String url,
+      timestamp: Timestamp | String,
+      ?identity: bool
+    ) -> Page
+  end
+end
