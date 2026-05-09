@@ -77,4 +77,39 @@ RSpec.describe Archaeo::UrlNormalizer do
       expect(normalizer.to_s).to eq("https://example.com/")
     end
   end
+
+  describe ".valid?" do
+    it "returns true for valid URLs" do
+      expect(described_class).to be_valid("https://example.com/")
+    end
+
+    it "returns true for bare domains" do
+      expect(described_class).to be_valid("example.com")
+    end
+
+    it "returns false for empty strings" do
+      expect(described_class).not_to be_valid("")
+    end
+
+    it "returns false for whitespace-only strings" do
+      expect(described_class).not_to be_valid("   ")
+    end
+  end
+
+  describe ".validate!" do
+    it "returns the normalized URL for valid input" do
+      expect(described_class.validate!("https://example.com/"))
+        .to eq("https://example.com/")
+    end
+
+    it "raises ArgumentError for empty input" do
+      expect { described_class.validate!("") }
+        .to raise_error(ArgumentError, /cannot be empty/)
+    end
+
+    it "raises ArgumentError for whitespace-only input" do
+      expect { described_class.validate!("   ") }
+        .to raise_error(ArgumentError, /cannot be empty/)
+    end
+  end
 end

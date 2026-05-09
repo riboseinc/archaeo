@@ -22,6 +22,23 @@ module Archaeo
       normalized.match?(%r{\A[a-z][a-z0-9+\-.]*://}) ? normalized : "https://#{normalized}"
     end
 
+    VALID_URL_RE = %r{\A([a-z][a-z0-9+\-.]*://)?[^\s]+\z}
+
+    def self.valid?(url)
+      normalized = normalize(url)
+      return false if normalized.empty?
+
+      normalized.match?(VALID_URL_RE)
+    end
+
+    def self.validate!(url)
+      normalized = normalize(url)
+      raise ArgumentError, "URL cannot be empty" if normalized.empty?
+      raise ArgumentError, "Invalid URL: #{url}" unless valid?(url)
+
+      normalized
+    end
+
     def to_s
       @normalized
     end
