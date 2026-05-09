@@ -4,7 +4,7 @@
 
 Archaeo is a Ruby client for the Internet Archive's https://web.archive.org[Wayback Machine] APIs.
 
-It provides a model-driven interface for querying archived snapshots, checking availability, saving URLs, and fetching archived content.
+It provides a model-driven interface for querying archived snapshots, checking availability, saving URLs, fetching archived content, and bulk downloading with resume support.
 
 == Installation
 
@@ -33,7 +33,7 @@ require "archaeo"
 ----
 cdx = Archaeo::CdxApi.new
 
-# Enumerate all snapshots
+# Enumerate all snapshots (auto-paginates via resume key)
 cdx.snapshots("example.com").each do |snapshot|
   puts snapshot.timestamp
   puts snapshot.original_url
@@ -48,6 +48,23 @@ near   = cdx.near("example.com", timestamp: "20220101")
 # Filter by time
 before = cdx.before("example.com", timestamp: "20220101")
 after  = cdx.after("example.com", timestamp: "20220101")
+
+# Filter by status code, mimetype, or URL pattern
+cdx.snapshots("example.com",
+  filters: [Archaeo::CdxFilter.by_status(200)],
+  collapse: ["digest"],
+  match_type: "domain",
+  sort: "reverse",
+)
+
+# Page-based pagination
+cdx.snapshots("example.com", page: 0)
+
+# Count pages
+cdx.num_pages("example.com")
+
+# Discover all known URLs for a domain
+cdx.known_urls("example.com")
 ----
 
 === Check Availability
@@ -94,6 +111,65 @@ page = fetcher.fetch("https://example.com/",
                      identity: true)
 ----
 
+=== Fetch Page with Assets
+
+[source,ruby]
+----
+fetcher = Archaeo::Fetcher.new
+bundle = fetcher.fetch_page_with_assets("https://example.com/",
+                                        timestamp: "20220615000000")
+
+bundle.page        # => Archaeo::Page
+bundle.assets      # => Archaeo::AssetList
+bundle.assets.css  # => ["https://example.com/style.css", ...]
+bundle.assets.js   # => ["https://example.com/app.js", ...]
+bundle.assets.images
+bundle.assets.fonts
+bundle.assets.media
+----
+
+=== Bulk Download with Resume
+
+[source,ruby]
+----
+downloader = Archaeo::BulkDownloader.new(output_dir: "archive")
+downloader.download("example.com") do |current, total, snapshot|
+  puts "[#{current}/#{total}] #{snapshot.original_url}"
+end
+
+# Resume interrupted download
+downloader.download("example.com", resume: true)
+
+# Filter by date range
+downloader.download("example.com",
+                    from: "20220101", to: "20221231")
+----
+
+=== URL Normalization
+
+[source,ruby]
+----
+Archaeo::UrlNormalizer.normalize("  https://example.com/  ")
+# => "https://example.com/"
+
+Archaeo::UrlNormalizer.normalize('"https://example.com/%252F"')
+# => "https://example.com/%2F"
+
+Archaeo::UrlNormalizer.with_scheme("example.com")
+# => "https://example.com"
+----
+
+=== CDX Filters
+
+[source,ruby]
+----
+# Build validated filter expressions
+Archaeo::CdxFilter.by_status(200)           # => "statuscode:200"
+Archaeo::CdxFilter.excluding_status(404)    # => "!statuscode:404"
+Archaeo::CdxFilter.by_mimetype("text/html") # => "mimetype:text/html"
+Archaeo::CdxFilter.by_url("example.com")    # => "original:example.com"
+----
+
 === Timestamps
 
 [source,ruby]
@@ -121,8 +197,13 @@ ts1 < ts2   # => true/false
 
 [source,bash]
 ----
-# List snapshots
+# Show version
+archaeo --version
+
+# List snapshots (table, json, or csv format)
 archaeo snapshots example.com
+archaeo snapshots --format json example.com
+archaeo snapshots --format csv --from 20220101 --to 20221231 example.com
 
 # Find closest snapshot
 archaeo near example.com 20220101
@@ -136,8 +217,40 @@ archaeo save https://example.com/
 # Fetch archived content
 archaeo fetch https://example.com/ 20220615120000
 
+# Fetch and save to file
+archaeo fetch --output page.html https://example.com/ 20220615120000
+
 # Fetch raw (identity) content
 archaeo fetch --identity https://example.com/ 20220615120000
+
+# Download all snapshots
+archaeo download example.com --output ./archive
+
+# Resume interrupted download
+archaeo download example.com --resume
+
+# Discover all known URLs for a domain
+archaeo known_urls example.com
+----
+
+=== Error Handling
+
+[source,ruby]
+----
+# Blocked site (robots.txt)
+Archaeo::BlockedSiteError
+
+# No snapshot found
+Archaeo::NoSnapshotFound
+
+# Rate limited by Wayback Machine
+Archaeo::RateLimitError
+
+# Maximum retries exceeded
+Archaeo::MaximumRetriesExceeded
+
+# SavePageNow session limit
+Archaeo::SaveFailed
 ----
 
 == Architecture
@@ -149,20 +262,28 @@ Archaeo follows a model-driven, OOP design:
 | Layer | Classes | Purpose
 
 | *Models*
-| `Timestamp`, `ArchiveUrl`, `Snapshot`, `Page`, `SaveResult`, `AvailabilityResult`
+| `Timestamp`, `ArchiveUrl`, `Snapshot`, `Page`, `PageBundle`, `SaveResult`, `AvailabilityResult`
 | Domain value objects
+
+| *URL Processing*
+| `UrlNormalizer`, `CdxFilter`, `UrlRewriter`
+| URL sanitization, filtering, and rewriting
+
+| *Asset Extraction*
+| `AssetExtractor`, `AssetList`
+| Parse HTML for resource URLs
 
 | *APIs*
 | `CdxApi`, `AvailabilityApi`, `SaveApi`
 | Query and mutate the archive
 
 | *Operations*
-| `Fetcher`
-| Download archived content
+| `Fetcher`, `BulkDownloader`, `DownloadState`
+| Download content with resume support
 
 | *Infrastructure*
 | `HttpClient`
-| HTTP transport with retries and gzip
+| HTTP transport with retries, gzip, connection pooling
 |===
 
 All API classes accept an `HttpClient` via dependency injection for testability.
