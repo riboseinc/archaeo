@@ -20,19 +20,22 @@ Gem::Specification.new do |spec|
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"] =
-    "#{spec.homepage}/blob/main/CHANGELOG.md"
+    "#{spec.homepage}/blob/main/CHANGELOG.adoc"
   spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__,
                                              err: IO::NULL) do |ls|
     ls.readlines("\x0", chomp: true).reject do |f|
       f == __FILE__ ||
-        f.start_with?(*%w[Gemfile .gitignore .rspec spec/ .github/ .rubocop])
+        f.start_with?(*%w[Gemfile .gitignore .rspec spec/ .github/
+                          .rubocop TODO])
     end
   end
   spec.bindir = "exe"
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
+  spec.add_dependency "csv", "~> 3.3"
+  spec.add_dependency "nokogiri", "~> 1.14"
   spec.add_dependency "thor", "~> 1.3"
 end

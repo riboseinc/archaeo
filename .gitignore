@@ -10,6 +10,10 @@
 # rspec failure tracking
 .rspec_status
 
+# build artifacts
+*.gem
 Gemfile.lock
-TODO*
 
+# development files
+TODO*
+reference-docs/
