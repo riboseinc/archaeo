@@ -151,6 +151,11 @@ module Archaeo
       )
       return response if response.status == 200
 
+      if response.status == 503
+        raise RateLimitError,
+              "CDX API rate limited (HTTP 503)"
+      end
+
       raise Error, "CDX API returned HTTP #{response.status}"
     end
 
