@@ -9,6 +9,10 @@ module Archaeo
   class Cli < Thor
     map %w[--version -v] => :version
 
+    def self.exit_on_failure?
+      true
+    end
+
     desc "version", "Show archaeo version"
     def version
       puts "archaeo #{VERSION}"
@@ -26,51 +30,91 @@ module Archaeo
     option :format, desc: "Output format (table, json, csv)",
                     default: "table"
     def snapshots(url)
-      cdx = CdxApi.new
-      opts = build_cdx_options(options)
-      snaps = cdx.snapshots(url, **opts).to_a
-      case options[:format]
-      when "json" then output_json(snaps)
-      when "csv" then output_csv(snaps)
-      else output_table(snaps)
+      fmt = options[:format].to_s
+      fmt = "table" if fmt.empty?
+      unless %w[table json csv].include?(fmt)
+        warn "Unknown format '#{fmt}'. Use: table, json, csv"
+        exit 1
+      end
+
+      handle_errors do
+        cdx = CdxApi.new
+        opts = build_cdx_options(options)
+        snaps = cdx.snapshots(url, **opts).to_a
+        case fmt
+        when "json" then output_json(snaps)
+        when "csv" then output_csv(snaps)
+        else output_table(snaps)
+        end
       end
     end
 
     desc "near URL TIMESTAMP",
          "Find the snapshot closest to a timestamp"
+    option :format, desc: "Output format (url, json)", default: "url"
     def near(url, timestamp)
-      snap = CdxApi.new.near(url, timestamp: timestamp)
-      puts snap.archive_url
+      handle_errors do
+        snap = CdxApi.new.near(url, timestamp: timestamp)
+        case options[:format]
+        when "json"
+          puts JSON.generate(snap.as_json)
+        else
+          puts snap.archive_url
+        end
+      end
     end
 
     desc "oldest URL", "Find the oldest snapshot of a URL"
+    option :format, desc: "Output format (url, json)", default: "url"
     def oldest(url)
-      snap = CdxApi.new.oldest(url)
-      puts snap.archive_url
+      handle_errors do
+        snap = CdxApi.new.oldest(url)
+        case options[:format]
+        when "json"
+          puts JSON.generate(snap.as_json)
+        else
+          puts snap.archive_url
+        end
+      end
     end
 
     desc "newest URL", "Find the newest snapshot of a URL"
+    option :format, desc: "Output format (url, json)", default: "url"
     def newest(url)
-      snap = CdxApi.new.newest(url)
-      puts snap.archive_url
+      handle_errors do
+        snap = CdxApi.new.newest(url)
+        case options[:format]
+        when "json"
+          puts JSON.generate(snap.as_json)
+        else
+          puts snap.archive_url
+        end
+      end
     end
 
     desc "available URL", "Check if a URL is archived"
+    option :timestamp, desc: "Check near this timestamp (YYYYMMDDHHmmss)"
     def available(url)
-      result = AvailabilityApi.new.near(url)
-      if result.available?
-        puts "Available: #{result.archive_url}"
-      else
-        puts "Not available"
-        exit 1
+      handle_errors do
+        result = AvailabilityApi.new.near(
+          url, timestamp: options[:timestamp],
+        )
+        if result.available?
+          puts "Available: #{result.archive_url}"
+        else
+          puts "Not available"
+          exit 1
+        end
       end
     end
 
     desc "save URL", "Save a URL to the Wayback Machine"
     def save(url)
-      result = SaveApi.new.save(url)
-      label = result.cached? ? "Cached" : "Saved"
-      puts "#{label}: #{result.archive_url}"
+      handle_errors do
+        result = SaveApi.new.save(url)
+        label = result.cached? ? "Cached" : "Saved"
+        puts "#{label}: #{result.archive_url}"
+      end
     end
 
     desc "fetch URL TIMESTAMP",
@@ -79,15 +123,21 @@ module Archaeo
                       desc: "Fetch raw (identity) content"
     option :output, desc: "Write content to file"
     def fetch(url, timestamp)
-      page = Fetcher.new.fetch(
-        url, timestamp: timestamp,
-             identity: options[:identity]
-      )
+      handle_errors do
+        page = Fetcher.new.fetch(
+          url, timestamp: timestamp,
+               identity: options[:identity],
+        )
 
-      if options[:output]
-        write_output(options[:output], page.content)
-      else
-        $stdout.write(page.content)
+        if options[:output]
+          write_output(options[:output], page.content)
+        elsif page.text? || page.json?
+          $stdout.write(page.content)
+        else
+          warn "Binary content (#{page.content_type}). " \
+               "Use --output FILE to save."
+          exit 1
+        end
       end
     end
 
@@ -97,38 +147,43 @@ module Archaeo
     option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
     option :resume, type: :boolean, default: false,
                     desc: "Resume interrupted download"
+    option :concurrency, type: :numeric, default: 1,
+                         desc: "Number of parallel downloads"
     def download(url)
-      downloader = BulkDownloader.new(output_dir: options[:output])
+      handle_errors do
+        downloader = BulkDownloader.new(
+          output_dir: options[:output],
+          concurrency: options[:concurrency],
+        )
 
-      downloader.download(
-        url,
-        from: options[:from],
-        to: options[:to],
-        resume: options[:resume],
-      ) do |current, total, snap|
-        warn "[#{current}/#{total}] " \
-             "#{snap.timestamp} #{snap.original_url}"
+        downloader.download(
+          url,
+          from: options[:from],
+          to: options[:to],
+          resume: options[:resume],
+        ) do |current, total, snap|
+          warn "[#{current}/#{total}] " \
+               "#{snap.timestamp} #{snap.original_url}"
+        end
       end
     end
 
     desc "known_urls DOMAIN",
          "List all known URLs for a domain"
     def known_urls(domain)
-      CdxApi.new.known_urls(domain).each do |u|
-        puts u
+      handle_errors do
+        CdxApi.new.known_urls(domain).each do |u|
+          puts u
+        end
       end
     end
 
     desc "num_pages URL",
          "Show number of CDX result pages for a URL"
     def num_pages(url)
-      puts CdxApi.new.num_pages(url)
-    rescue RateLimitError => e
-      warn "Error: #{e.message}"
-      exit 1
-    rescue Error => e
-      warn "Error: #{e.message}"
-      exit 1
+      handle_errors do
+        puts CdxApi.new.num_pages(url)
+      end
     end
 
     CDX_OPTION_MAP = {
@@ -142,6 +197,22 @@ module Archaeo
     }.freeze
 
     private
+
+    def handle_errors
+      yield
+    rescue RateLimitError => e
+      warn "Rate limited: #{e.message}"
+      exit 1
+    rescue NoSnapshotFound => e
+      warn "Not found: #{e.message}"
+      exit 1
+    rescue BlockedSiteError => e
+      warn "Blocked: #{e.message}"
+      exit 1
+    rescue Error => e
+      warn "Error: #{e.message}"
+      exit 1
+    end
 
     def build_cdx_options(opts)
       CDX_OPTION_MAP.each_with_object({}) do |(cli_key, api_key), result|
@@ -158,14 +229,7 @@ module Archaeo
     end
 
     def output_json(snaps)
-      data = snaps.map do |snap|
-        {
-          timestamp: snap.timestamp.to_s,
-          status_code: snap.status_code,
-          url: snap.original_url,
-          archive_url: snap.archive_url,
-        }
-      end
+      data = snaps.map(&:as_json)
       puts JSON.generate(data)
     end
 
