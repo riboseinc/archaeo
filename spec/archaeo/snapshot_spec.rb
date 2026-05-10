@@ -144,4 +144,64 @@ RSpec.describe Archaeo::Snapshot do
       expect(snap).not_to be_success
     end
   end
+
+  describe "#redirect?" do
+    it "returns true for 3xx status codes" do
+      snap = described_class.new(
+        urlkey: "com,example)/", timestamp: "20220113130051",
+        original_url: "https://example.com/", status_code: "301",
+      )
+      expect(snap).to be_redirect
+    end
+
+    it "returns false for 200" do
+      expect(snapshot).not_to be_redirect
+    end
+  end
+
+  describe "#client_error?" do
+    it "returns true for 4xx status codes" do
+      snap = described_class.new(
+        urlkey: "com,example)/", timestamp: "20220113130051",
+        original_url: "https://example.com/", status_code: "404",
+      )
+      expect(snap).to be_client_error
+    end
+  end
+
+  describe "#server_error?" do
+    it "returns true for 5xx status codes" do
+      snap = described_class.new(
+        urlkey: "com,example)/", timestamp: "20220113130051",
+        original_url: "https://example.com/", status_code: "500",
+      )
+      expect(snap).to be_server_error
+    end
+  end
+
+  describe "#error?" do
+    it "returns true for client and server errors" do
+      expect(described_class.new(
+        urlkey: "x", timestamp: "20220113130051",
+        original_url: "u", status_code: "404",
+      )).to be_error
+
+      expect(described_class.new(
+        urlkey: "x", timestamp: "20220113130051",
+        original_url: "u", status_code: "503",
+      )).to be_error
+    end
+
+    it "returns false for 200" do
+      expect(snapshot).not_to be_error
+    end
+  end
+
+  describe "#as_json" do
+    it "returns a JSON-serializable hash" do
+      h = snapshot.as_json
+      expect(h[:timestamp]).to eq("20220113130051")
+      expect { JSON.generate(h) }.not_to raise_error
+    end
+  end
 end
