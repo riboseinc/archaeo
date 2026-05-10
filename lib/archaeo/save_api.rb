@@ -32,7 +32,7 @@ module Archaeo
         response = @client.get(save_url)
         check_response_errors!(response, url)
 
-        result = process_save_response(response, start_time)
+        result = process_save_response(response, start_time, url)
         return result if result
       end
 
@@ -40,13 +40,13 @@ module Archaeo
             "Failed to save #{url} after #{@max_tries} attempts"
     end
 
-    def process_save_response(response, start_time)
+    def process_save_response(response, start_time, url)
       archive_url = extract_archive_url(response)
       return nil unless archive_url
 
       ts = Timestamp.parse(extract_timestamp(archive_url))
       cached = ts.to_time < start_time - 2700
-      SaveResult.new(archive_url: archive_url,
+      SaveResult.new(url: url, archive_url: archive_url,
                      timestamp: ts, cached: cached)
     end
 

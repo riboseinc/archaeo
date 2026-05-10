@@ -99,6 +99,13 @@ module Archaeo
             "No snapshot found after #{ts} for #{url}"
     end
 
+    def between(url, from:, to:, **options)
+      snapshots(url,
+                from: Timestamp.coerce(from).to_s,
+                to: Timestamp.coerce(to).to_s,
+                **options)
+    end
+
     # Returns the number of pages for a paginated query.
     def num_pages(url, **options)
       url = UrlNormalizer.normalize(url)

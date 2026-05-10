@@ -68,12 +68,14 @@ module Archaeo
     def build_result(closest, url)
       archive_url = closest["url"].to_s.sub(%r{^http://}, "https://")
       ts = Timestamp.parse(closest["timestamp"])
+      archived_status = closest["status"].to_i
 
       AvailabilityResult.new(
         url: url,
-        available: closest["status"].to_s == "200",
+        available: true,
         archive_url: archive_url,
         timestamp: ts,
+        archived_status: archived_status,
       )
     end
   end

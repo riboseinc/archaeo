@@ -34,6 +34,35 @@ module Archaeo
       @encoding ||= detect_encoding
     end
 
+    def html?
+      @content_type&.include?("text/html")
+    end
+
+    def json?
+      @content_type&.include?("application/json")
+    end
+
+    def image?
+      @content_type&.start_with?("image/")
+    end
+
+    def text?
+      @content_type&.start_with?("text/")
+    end
+
+    def binary?
+      !(text? || json? || html?)
+    end
+
+    def title
+      @title ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        doc.at_css("title")&.text&.strip
+      rescue StandardError
+        nil
+      end
+    end
+
     private
 
     def detect_encoding
