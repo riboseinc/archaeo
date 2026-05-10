@@ -41,4 +41,42 @@ RSpec.describe Archaeo::SaveResult do
   it "exposes url" do
     expect(subject.url).to eq("https://example.com/")
   end
+
+  describe "#to_h" do
+    it "returns a hash with all fields" do
+      h = subject.to_h
+      expect(h[:url]).to eq("https://example.com/")
+      expect(h[:cached]).to be(false)
+    end
+  end
+
+  describe "#as_json" do
+    it "returns a JSON-serializable hash" do
+      h = subject.as_json
+      expect(h[:timestamp]).to eq("20220615000000")
+      expect { JSON.generate(h) }.not_to raise_error
+    end
+  end
+
+  describe "#to_s" do
+    it "shows Saved for new saves" do
+      expect(subject.to_s).to start_with("Saved:")
+    end
+
+    it "shows Cached for cached results" do
+      result = described_class.new(
+        url: "https://example.com/",
+        archive_url: "https://web.archive.org/web/20220615120000/https://example.com/",
+        timestamp: ts, cached: true
+      )
+      expect(result.to_s).to start_with("Cached:")
+    end
+  end
+
+  describe "#inspect" do
+    it "shows class, url and cached status" do
+      expect(subject.inspect).to include("example.com")
+      expect(subject.inspect).to include("cached=false")
+    end
+  end
 end

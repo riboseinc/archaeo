@@ -41,10 +41,39 @@ RSpec.describe Archaeo::DownloadState do
       state.mark_completed(ts)
       state.mark_completed(ts)
 
-      described_class.new(tmpdir)
+      state2 = described_class.new(tmpdir)
+      entries = state2.entry_for(ts)
+      expect(entries["ts"]).to eq("20220615000000")
+    end
+  end
+
+  describe "#mark_completed with metadata" do
+    it "stores url and bytes" do
+      ts = Archaeo::Timestamp.new(year: 2022, month: 6, day: 15)
+      state.mark_completed(ts, url: "https://example.com/",
+                               bytes: 12345)
+
+      entry = state.entry_for(ts)
+      expect(entry["url"]).to eq("https://example.com/")
+      expect(entry["bytes"]).to eq(12345)
+    end
+
+    it "computes total_bytes" do
+      state.mark_completed("20220101000000", bytes: 100)
+      state.mark_completed("20220102000000", bytes: 200)
+
+      expect(state.total_bytes).to eq(300)
+    end
+  end
+
+  describe "legacy format migration" do
+    it "reads legacy plain-text state files" do
       path = File.join(tmpdir, described_class::STATE_FILE)
-      lines = File.readlines(path, chomp: true)
-      expect(lines.count("20220615000000")).to eq(1)
+      File.write(path, "20220101000000\n20220102000000\n")
+
+      state2 = described_class.new(tmpdir)
+      expect(state2.completed?("20220101000000")).to be true
+      expect(state2.completed?("20220102000000")).to be true
     end
   end
 

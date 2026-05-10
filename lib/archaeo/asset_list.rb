@@ -40,6 +40,10 @@ module Archaeo
       @urls_by_type[:image]
     end
 
+    def urls_by_type(type)
+      @urls_by_type[type] || []
+    end
+
     def fonts
       @urls_by_type[:font]
     end
@@ -70,6 +74,33 @@ module Archaeo
 
     def counts
       @urls_by_type.transform_values(&:size)
+    end
+
+    def filter(*types)
+      result = self.class.new
+      types.each do |type|
+        @urls_by_type[type]&.each { |url| result.add(url, type: type) }
+      end
+      result
+    end
+
+    def merge(other)
+      CATEGORIES.each do |type|
+        other.urls_by_type(type).each { |url| add(url, type: type) }
+      end
+      self
+    end
+
+    def self.from_json(json_string)
+      data = JSON.parse(json_string)
+      list = new
+      data.each do |type, urls|
+        sym = type.to_sym
+        next unless CATEGORIES.include?(sym)
+
+        Array(urls).each { |url| list.add(url, type: sym) }
+      end
+      list
     end
   end
 end

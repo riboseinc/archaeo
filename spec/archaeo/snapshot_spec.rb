@@ -204,4 +204,39 @@ RSpec.describe Archaeo::Snapshot do
       expect { JSON.generate(h) }.not_to raise_error
     end
   end
+
+  describe "#identity_url" do
+    it "returns the identity (raw) archive URL" do
+      expect(snapshot.identity_url)
+        .to eq("https://web.archive.org/web/20220113130051id_/https://example.com/")
+    end
+  end
+
+  describe "#age" do
+    it "returns seconds since the snapshot was captured" do
+      expect(snapshot.age).to be > 0
+    end
+  end
+
+  describe "#older_than? and #newer_than?" do
+    it "reports old snapshots correctly" do
+      expect(snapshot).to be_older_than(1)
+    end
+
+    it "reports new snapshots correctly" do
+      snap = described_class.new(
+        urlkey: "x", timestamp: Archaeo::Timestamp.now,
+        original_url: "u"
+      )
+      expect(snap).to be_newer_than(3600)
+    end
+  end
+
+  describe "#inspect" do
+    it "shows class, timestamp, url and status" do
+      expect(snapshot.inspect).to start_with("#<Archaeo::Snapshot")
+      expect(snapshot.inspect).to include("20220113130051")
+      expect(snapshot.inspect).to include("status=200")
+    end
+  end
 end

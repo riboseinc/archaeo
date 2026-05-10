@@ -106,6 +106,10 @@ module Archaeo
                 **options)
     end
 
+    def count(url, **options)
+      snapshots(url, **options).count
+    end
+
     # Returns the number of pages for a paginated query.
     def num_pages(url, **options)
       url = UrlNormalizer.normalize(url)

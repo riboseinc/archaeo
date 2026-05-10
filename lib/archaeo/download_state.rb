@@ -1,11 +1,12 @@
 # frozen_string_literal: true
 
+require "json"
 require "set"
 
 module Archaeo
   # Tracks download progress for resume support.
   #
-  # Persists completed snapshot timestamps to a state file within
+  # Persists completed snapshot metadata to a JSONL state file within
   # the output directory, allowing interrupted downloads to resume
   # without re-fetching already downloaded snapshots.
   class DownloadState
@@ -19,42 +20,72 @@ module Archaeo
     end
 
     def completed?(timestamp)
-      timestamps_set.include?(timestamp.to_s)
+      entries_key.include?(timestamp.to_s)
     end
 
-    def mark_completed(timestamp)
+    def mark_completed(timestamp, url: nil, bytes: nil)
       ts = timestamp.to_s
-      return if timestamps_set.include?(ts)
+      return if entries_key.include?(ts)
 
-      timestamps << ts
-      @timestamps_set = nil
+      entry = { "ts" => ts, "at" => Time.now.utc.iso8601 }
+      entry["url"] = url if url
+      entry["bytes"] = bytes if bytes
+      entries << entry
+      @entries_key = nil
       save
     end
 
+    def entry_for(timestamp)
+      entries.find { |e| e["ts"] == timestamp.to_s }
+    end
+
+    def total_bytes
+      entries.sum { |e| e["bytes"].to_i }
+    end
+
     def clear
-      @timestamps = []
-      @timestamps_set = nil
+      @entries = []
+      @entries_key = nil
       FileUtils.rm_f(@path)
     end
 
     private
 
-    def timestamps
-      @timestamps ||= load_timestamps
+    def entries
+      @entries ||= load_entries
     end
 
-    def timestamps_set
-      @timestamps_set ||= timestamps.to_set
+    def entries_key
+      @entries_key ||= entries.each_with_object(Set.new) { |e, s| s << e["ts"] }
     end
 
-    def load_timestamps
+    def load_entries
       return [] unless File.exist?(@path)
 
-      File.readlines(@path, chomp: true).reject(&:empty?)
+      first_line = File.open(@path, &:readline).strip
+      if first_line.start_with?("{")
+        parse_jsonl
+      else
+        migrate_legacy(first_line)
+      end
+    rescue EOFError
+      []
+    end
+
+    def parse_jsonl
+      File.readlines(@path, chomp: true).reject(&:empty?).map do |line|
+        JSON.parse(line)
+      end
+    end
+
+    def migrate_legacy(_first_line)
+      File.readlines(@path, chomp: true).reject(&:empty?).map do |ts|
+        { "ts" => ts }
+      end
     end
 
     def save
-      content = "#{timestamps.sort.join("\n")}\n"
+      content = "#{entries.map { |e| JSON.generate(e) }.join("\n")}\n"
       tmp_path = "#{@path}.tmp"
       File.write(tmp_path, content)
       File.rename(tmp_path, @path)

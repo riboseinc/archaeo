@@ -110,4 +110,26 @@ RSpec.describe Archaeo::CdxFilter do
       end
     end
   end
+
+  describe ".only_html" do
+    it "returns a filter for text/html" do
+      filters = described_class.only_html
+      expect(filters.first.to_s).to eq("mimetype:text/html")
+    end
+  end
+
+  describe ".by_mimetype_prefix" do
+    it "builds a mimetype filter with wildcard" do
+      expect(described_class.by_mimetype_prefix("image/").to_s)
+        .to eq("mimetype:image/.*")
+    end
+  end
+
+  describe ".excluding_redirects" do
+    it "returns filters for 3xx status codes" do
+      filters = described_class.excluding_redirects
+      expect(filters.size).to eq(5)
+      expect(filters.map(&:to_s)).to all(start_with("!statuscode:"))
+    end
+  end
 end

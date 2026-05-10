@@ -17,6 +17,7 @@ module Archaeo
     def initialize(year:, month: 1, day: 1,
                    hour: 0, minute: 0, second: 0)
       @to_time = Time.utc(year, month, day, hour, minute, second)
+      freeze
     end
 
     def self.parse(string)
@@ -128,6 +129,19 @@ module Archaeo
 
     def second
       @to_time.sec
+    end
+
+    def to_h
+      { year: year, month: month, day: day,
+        hour: hour, minute: minute, second: second }
+    end
+
+    def to_a
+      [year, month, day, hour, minute, second]
+    end
+
+    def inspect
+      "#<#{self.class.name} #{self}>"
     end
   end
 end

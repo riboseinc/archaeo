@@ -14,6 +14,7 @@ module Archaeo
   class ArchiveNotAvailable < Error; end
   class InvalidResponse < Error; end
   class SaveFailed < Error; end
+  class IntegrityError < Error; end
 
   autoload :Timestamp, "archaeo/timestamp"
   autoload :ArchiveUrl, "archaeo/archive_url"

@@ -29,6 +29,11 @@ module Archaeo
       ArchiveUrl.new(original_url, timestamp: @timestamp).to_s
     end
 
+    def identity_url
+      ArchiveUrl.new(original_url, timestamp: @timestamp,
+                                   identity: true).to_s
+    end
+
     def blocked?
       @status_code == BLOCKED_STATUS
     end
@@ -51,6 +56,18 @@ module Archaeo
 
     def error?
       client_error? || server_error?
+    end
+
+    def age
+      Time.now - @timestamp.to_time
+    end
+
+    def older_than?(seconds)
+      age > seconds
+    end
+
+    def newer_than?(seconds)
+      age <= seconds
     end
 
     def fetch(client: HttpClient.new, identity: false)
@@ -101,6 +118,11 @@ module Archaeo
 
     def hash
       to_a.hash
+    end
+
+    def inspect
+      "#<#{self.class.name} #{timestamp} " \
+        "#{original_url} status=#{status_code}>"
     end
   end
 end

@@ -76,6 +76,18 @@ module Archaeo
        excluding_status(502), excluding_status(503)]
     end
 
+    def self.only_html
+      [by_mimetype("text/html")]
+    end
+
+    def self.by_mimetype_prefix(prefix)
+      new("mimetype:#{Regexp.escape(prefix)}.*")
+    end
+
+    def self.excluding_redirects
+      %w[301 302 303 307 308].map { |c| excluding_status(c) }
+    end
+
     private
 
     def validate!

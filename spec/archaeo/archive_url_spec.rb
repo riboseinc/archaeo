@@ -71,4 +71,36 @@ RSpec.describe Archaeo::ArchiveUrl do
       expect(url).to be_identity
     end
   end
+
+  describe "#identity_url" do
+    it "returns the identity variant of a normal URL" do
+      url = described_class.new("https://example.com/", timestamp: ts)
+      expect(url.identity_url).to include("id_/")
+    end
+
+    it "returns self for already-identity URLs" do
+      url = described_class.new("https://example.com/",
+                                timestamp: ts, identity: true)
+      expect(url.identity_url).to eq(url.to_s)
+    end
+  end
+
+  describe "#to_h" do
+    it "returns a hash with all fields" do
+      url = described_class.new("https://example.com/", timestamp: ts)
+      h = url.to_h
+      expect(h[:original_url]).to eq("https://example.com/")
+      expect(h[:identity]).to be(false)
+    end
+  end
+
+  describe "#as_json" do
+    it "returns a JSON-serializable hash with url" do
+      url = described_class.new("https://example.com/", timestamp: ts)
+      h = url.as_json
+      expect(h[:timestamp]).to eq("20220615000000")
+      expect(h[:url]).to include("web.archive.org")
+      expect { JSON.generate(h) }.not_to raise_error
+    end
+  end
 end

@@ -50,6 +50,10 @@ module Archaeo
       @content_type&.start_with?("text/")
     end
 
+    def css?
+      @content_type&.include?("text/css")
+    end
+
     def binary?
       !(text? || json? || html?)
     end
@@ -61,6 +65,34 @@ module Archaeo
       rescue StandardError
         nil
       end
+    end
+
+    def to_h
+      {
+        content_type: @content_type,
+        status_code: @status_code,
+        archive_url: @archive_url,
+        original_url: @original_url,
+        timestamp: @timestamp,
+        size: size,
+        encoding: encoding.to_s,
+      }
+    end
+
+    def as_json(*)
+      {
+        content_type: @content_type,
+        status_code: @status_code,
+        archive_url: @archive_url,
+        original_url: @original_url,
+        timestamp: @timestamp.to_s,
+        size: size,
+        encoding: encoding.to_s,
+      }
+    end
+
+    def inspect
+      "#<#{self.class.name} #{@content_type} #{size} bytes>"
     end
 
     private

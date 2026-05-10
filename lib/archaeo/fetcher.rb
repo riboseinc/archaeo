@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module Archaeo
   # Downloads archived content from the Wayback Machine.
   #
@@ -13,12 +15,13 @@ module Archaeo
       @client = client
     end
 
-    def fetch(url, timestamp:, identity: false)
+    def fetch(url, timestamp:, identity: false, snapshot: nil)
       url = UrlNormalizer.normalize(url)
       ts = Timestamp.coerce(timestamp)
       archive_url = ArchiveUrl.new(url, timestamp: ts,
                                         identity: identity)
       response = follow_redirects(archive_url.to_s)
+      verify_integrity!(response, snapshot) if snapshot
       build_page(response, archive_url.to_s, url, ts)
     end
 
@@ -30,6 +33,18 @@ module Archaeo
     end
 
     private
+
+    def verify_integrity!(response, snapshot)
+      return unless snapshot.digest && !snapshot.digest.empty?
+
+      expected = snapshot.digest.delete_prefix("SHA1-")
+      actual = Digest::SHA1.hexdigest(response.body)
+      return if expected == actual
+
+      raise IntegrityError,
+            "Digest mismatch for #{snapshot.original_url}: " \
+            "expected #{expected}, got #{actual}"
+    end
 
     def build_page(response, archive_url, url, timestamp)
       Page.new(

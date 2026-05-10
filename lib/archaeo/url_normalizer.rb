@@ -49,7 +49,8 @@ module Archaeo
       url = strip_whitespace(url)
       url = strip_surrounding_quotes(url)
       url = fix_double_percent_encoding(url)
-      normalize_percent_encoding(url)
+      url = normalize_percent_encoding(url)
+      remove_default_port(url)
     end
 
     def strip_whitespace(url)
@@ -68,6 +69,11 @@ module Archaeo
 
     def normalize_percent_encoding(url)
       url.gsub(/%[0-9a-f]{2}/i, &:upcase)
+    end
+
+    def remove_default_port(url)
+      url.sub(%r{(https://[^/:]+):443(?=/|$)}, '\1')
+        .sub(%r{(http://[^/:]+):80(?=/|$)}, '\1')
     end
   end
 end

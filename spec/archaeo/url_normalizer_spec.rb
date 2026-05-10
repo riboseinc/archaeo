@@ -38,6 +38,21 @@ RSpec.describe Archaeo::UrlNormalizer do
       expect(described_class.normalize("example.com"))
         .to eq("example.com")
     end
+
+    it "removes default port 443 from https URLs" do
+      expect(described_class.normalize("https://example.com:443/path"))
+        .to eq("https://example.com/path")
+    end
+
+    it "removes default port 80 from http URLs" do
+      expect(described_class.normalize("http://example.com:80/path"))
+        .to eq("http://example.com/path")
+    end
+
+    it "keeps non-default ports" do
+      expect(described_class.normalize("https://example.com:8443/path"))
+        .to eq("https://example.com:8443/path")
+    end
   end
 
   describe ".with_scheme" do
