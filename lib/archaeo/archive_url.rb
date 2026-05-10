@@ -36,6 +36,18 @@ module Archaeo
       @identity
     end
 
+    def ==(other)
+      other.is_a?(self.class) &&
+        original_url == other.original_url &&
+        timestamp == other.timestamp &&
+        identity? == other.identity?
+    end
+    alias_method :eql?, :==
+
+    def hash
+      [original_url, timestamp, identity?].hash
+    end
+
     def to_s
       suffix = identity? ? "id_" : ""
       "#{BASE}/#{@timestamp}#{suffix}/#{@original_url}"

@@ -6,9 +6,10 @@ module Archaeo
   # Contains the resulting archive URL, timestamp, and whether
   # the page was already cached in the archive.
   class SaveResult
-    attr_reader :archive_url, :timestamp
+    attr_reader :url, :archive_url, :timestamp
 
-    def initialize(archive_url:, timestamp:, cached:)
+    def initialize(url:, archive_url:, timestamp:, cached:)
+      @url = url
       @archive_url = archive_url
       @timestamp = Timestamp.coerce(timestamp)
       @cached = cached

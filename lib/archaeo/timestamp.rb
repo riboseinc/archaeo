@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "date"
+
 module Archaeo
   # Value object representing a Wayback Machine timestamp (YYYYMMDDHHmmss).
   #
@@ -68,6 +70,26 @@ module Archaeo
 
     def to_i
       @to_time.to_i
+    end
+
+    def to_iso8601
+      @to_time.iso8601
+    end
+
+    def to_rfc3339
+      @to_time.rfc3339
+    end
+
+    def +(seconds)
+      self.class.from_time(@to_time + seconds)
+    end
+
+    def -(other)
+      if other.is_a?(self.class)
+        @to_time - other.to_time
+      else
+        self.class.from_time(@to_time - other)
+      end
     end
 
     def <=>(other)

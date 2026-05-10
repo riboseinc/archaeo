@@ -5,6 +5,7 @@ require "spec_helper"
 RSpec.describe Archaeo::SaveResult do
   subject do
     described_class.new(
+      url: "https://example.com/",
       archive_url: "https://web.archive.org/web/20220615120000/" \
                    "https://example.com/",
       timestamp: ts,
@@ -28,11 +29,16 @@ RSpec.describe Archaeo::SaveResult do
 
   it "reports cached true when appropriate" do
     result = described_class.new(
+      url: "https://example.com/",
       archive_url: "https://web.archive.org/web/20220615120000/" \
                    "https://example.com/",
       timestamp: ts,
       cached: true,
     )
     expect(result).to be_cached
+  end
+
+  it "exposes url" do
+    expect(subject.url).to eq("https://example.com/")
   end
 end

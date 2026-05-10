@@ -37,6 +37,34 @@ module Archaeo
       @status_code == 200
     end
 
+    def redirect?
+      @status_code.between?(300, 399)
+    end
+
+    def client_error?
+      @status_code.between?(400, 499)
+    end
+
+    def server_error?
+      @status_code.between?(500, 599)
+    end
+
+    def error?
+      client_error? || server_error?
+    end
+
+    def fetch(client: HttpClient.new, identity: false)
+      Fetcher.new(client: client).fetch(
+        original_url, timestamp: @timestamp, identity: identity,
+      )
+    end
+
+    def fetch_with_assets(client: HttpClient.new)
+      Fetcher.new(client: client).fetch_page_with_assets(
+        original_url, timestamp: @timestamp,
+      )
+    end
+
     def to_a
       [@urlkey, @timestamp, @original_url, @mimetype,
        @status_code, @digest, @length]
@@ -46,6 +74,18 @@ module Archaeo
       {
         urlkey: @urlkey,
         timestamp: @timestamp,
+        original_url: @original_url,
+        mimetype: @mimetype,
+        status_code: @status_code,
+        digest: @digest,
+        length: @length,
+      }
+    end
+
+    def as_json(*)
+      {
+        urlkey: @urlkey,
+        timestamp: @timestamp.to_s,
         original_url: @original_url,
         mimetype: @mimetype,
         status_code: @status_code,
