@@ -178,4 +178,37 @@ RSpec.describe Archaeo::Timestamp do
       expect(ts.to_i).to eq(Time.utc(2022, 1, 1).to_i)
     end
   end
+
+  describe "#to_h" do
+    it "returns a hash of all components" do
+      ts = described_class.new(year: 2022, month: 6, day: 15,
+                               hour: 10, minute: 30, second: 45)
+      expect(ts.to_h).to eq(
+        year: 2022, month: 6, day: 15,
+        hour: 10, minute: 30, second: 45
+      )
+    end
+  end
+
+  describe "#to_a" do
+    it "returns components in order" do
+      ts = described_class.new(year: 2022, month: 6, day: 15,
+                               hour: 10, minute: 30, second: 45)
+      expect(ts.to_a).to eq([2022, 6, 15, 10, 30, 45])
+    end
+  end
+
+  describe "#inspect" do
+    it "shows class name and formatted timestamp" do
+      ts = described_class.new(year: 2022, month: 6, day: 15)
+      expect(ts.inspect).to eq("#<Archaeo::Timestamp 20220615000000>")
+    end
+  end
+
+  describe "freeze" do
+    it "is frozen on creation" do
+      ts = described_class.new(year: 2022)
+      expect(ts).to be_frozen
+    end
+  end
 end

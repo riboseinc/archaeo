@@ -147,4 +147,69 @@ RSpec.describe Archaeo::Page do
       expect(page.content).to eq("")
     end
   end
+
+  describe "#css?" do
+    it "returns true for text/css" do
+      page = described_class.new(
+        content: "body {}", content_type: "text/css",
+        status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+      )
+      expect(page).to be_css
+    end
+
+    it "returns false for text/html" do
+      page = described_class.new(
+        content: "<html>", content_type: "text/html",
+        status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+      )
+      expect(page).not_to be_css
+    end
+  end
+
+  describe "#title" do
+    it "extracts the page title" do
+      page = described_class.new(
+        content: "<html><head><title>My Page</title></head>" \
+                 "<body></body></html>",
+        content_type: "text/html", status_code: 200,
+        archive_url: "u", original_url: "u", timestamp: ts
+      )
+      expect(page.title).to eq("My Page")
+    end
+  end
+
+  describe "#to_h" do
+    it "returns a hash with all fields" do
+      page = described_class.new(
+        content: "hello", content_type: "text/html",
+        status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+      )
+      h = page.to_h
+      expect(h[:status_code]).to eq(200)
+      expect(h[:size]).to eq(5)
+      expect(h[:timestamp]).to be_a(Archaeo::Timestamp)
+    end
+  end
+
+  describe "#as_json" do
+    it "returns a JSON-serializable hash" do
+      page = described_class.new(
+        content: "hello", content_type: "text/html",
+        status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+      )
+      h = page.as_json
+      expect(h[:timestamp]).to eq("20220615000000")
+      expect { JSON.generate(h) }.not_to raise_error
+    end
+  end
+
+  describe "#inspect" do
+    it "shows class, content type and size" do
+      page = described_class.new(
+        content: "hello", content_type: "text/html",
+        status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+      )
+      expect(page.inspect).to eq("#<Archaeo::Page text/html 5 bytes>")
+    end
+  end
 end

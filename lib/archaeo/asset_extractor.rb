@@ -24,6 +24,12 @@ module Archaeo
       "\\s*:[^;]*#{CSS_URL_PATTERN.source}",
     )
 
+    PRELOAD_TYPE_MAP = {
+      "style" => :css,
+      "script" => :js,
+      "image" => :image,
+    }.freeze
+
     def initialize(html, base_url: nil)
       @doc = Nokogiri::HTML(html.to_s)
       @base_url = base_url
@@ -38,6 +44,7 @@ module Archaeo
       extract_media(list)
       extract_inline_css(list)
       extract_inline_styles(list)
+      extract_preloads(list)
       list
     end
 
@@ -52,6 +59,9 @@ module Archaeo
     def extract_js(list)
       @doc.css("script[src]").each do |el|
         list.add(resolve(el["src"]), type: :js)
+      end
+      @doc.css('link[rel="modulepreload"]').each do |el|
+        list.add(resolve(el["href"]), type: :js)
       end
     end
 
@@ -201,6 +211,15 @@ module Archaeo
       URI.join(@base_url, url).to_s
     rescue URI::InvalidURIError
       url
+    end
+
+    def extract_preloads(list)
+      @doc.css('link[rel="preload"][as]').each do |el|
+        type = PRELOAD_TYPE_MAP[el["as"]]
+        next unless type
+
+        list.add(resolve(el["href"]), type: type)
+      end
     end
   end
 end

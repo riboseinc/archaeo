@@ -53,6 +53,22 @@ module Archaeo
       "#{BASE}/#{@timestamp}#{suffix}/#{@original_url}"
     end
 
+    def identity_url
+      return to_s if identity?
+
+      self.class.new(@original_url, timestamp: @timestamp, identity: true).to_s
+    end
+
+    def to_h
+      { original_url: @original_url, timestamp: @timestamp,
+        identity: @identity }
+    end
+
+    def as_json(*)
+      { original_url: @original_url, timestamp: @timestamp.to_s,
+        identity: @identity, url: to_s }
+    end
+
     def self.extract_original_url(string, ts_str, identity)
       marker = identity ? "#{ts_str}id_/" : "#{ts_str}/"
       idx = string.index(marker)

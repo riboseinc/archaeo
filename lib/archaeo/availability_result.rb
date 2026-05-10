@@ -32,5 +32,29 @@ module Archaeo
         "#{url} -> not available"
       end
     end
+
+    def to_h
+      {
+        url: @url,
+        available: @available,
+        archive_url: @archive_url,
+        timestamp: @timestamp,
+        archived_status: @archived_status,
+      }
+    end
+
+    def as_json(*)
+      {
+        url: @url,
+        available: @available,
+        archive_url: @archive_url,
+        timestamp: @timestamp&.to_s,
+        archived_status: @archived_status,
+      }
+    end
+
+    def inspect
+      "#<#{self.class.name} #{@url} available=#{@available}>"
+    end
   end
 end

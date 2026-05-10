@@ -45,4 +45,38 @@ RSpec.describe Archaeo::AvailabilityResult do
     expect(result.to_s).to include("example.com")
     expect(result.to_s).to include("web.archive.org")
   end
+
+  describe "#to_h" do
+    it "returns a hash with all fields" do
+      result = described_class.new(
+        url: "example.com", available: true,
+        archive_url: "https://web.archive.org/web/20220113130051/https://example.com/",
+        timestamp: ts
+      )
+      h = result.to_h
+      expect(h[:url]).to eq("example.com")
+      expect(h[:available]).to be(true)
+    end
+  end
+
+  describe "#as_json" do
+    it "returns a JSON-serializable hash" do
+      result = described_class.new(
+        url: "example.com", available: true,
+        archive_url: "https://web.archive.org/web/20220113130051/https://example.com/",
+        timestamp: ts
+      )
+      h = result.as_json
+      expect(h[:timestamp]).to eq("20220113000000")
+      expect { JSON.generate(h) }.not_to raise_error
+    end
+  end
+
+  describe "#inspect" do
+    it "shows class, url and availability" do
+      result = described_class.new(url: "example.com", available: true)
+      expect(result.inspect).to include("example.com")
+      expect(result.inspect).to include("available=true")
+    end
+  end
 end

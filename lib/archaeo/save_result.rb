@@ -18,5 +18,24 @@ module Archaeo
     def cached?
       @cached
     end
+
+    def to_h
+      { url: @url, archive_url: @archive_url,
+        timestamp: @timestamp, cached: @cached }
+    end
+
+    def as_json(*)
+      { url: @url, archive_url: @archive_url,
+        timestamp: @timestamp.to_s, cached: @cached }
+    end
+
+    def to_s
+      label = @cached ? "Cached" : "Saved"
+      "#{label}: #{@archive_url}"
+    end
+
+    def inspect
+      "#<#{self.class.name} #{@url} cached=#{@cached}>"
+    end
   end
 end

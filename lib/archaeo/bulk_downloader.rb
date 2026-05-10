@@ -3,6 +3,11 @@
 require "fileutils"
 
 module Archaeo
+  DownloadSummary = Struct.new(
+    :total, :downloaded, :skipped, :failed, :bytes_written, :elapsed,
+    keyword_init: true
+  )
+
   # Downloads all archived snapshots of a URL with resume support.
   #
   # Queries the CDX API for matching snapshots, fetches each page,
@@ -17,20 +22,17 @@ module Archaeo
       @concurrency = [1, concurrency.to_i].max
     end
 
-    def download(url, from: nil, to: nil, resume: false, &block)
+    def download(url, from: nil, to: nil, resume: false,
+                 dry_run: false, &block)
+      start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       url = UrlNormalizer.normalize(url)
-      FileUtils.mkdir_p(@output_dir)
-      state = DownloadState.new(@output_dir)
+      FileUtils.mkdir_p(@output_dir) unless dry_run
 
       snapshots = fetch_snapshots(url, from: from, to: to)
-      total = snapshots.size
-      progress = block
+      downloaded, skipped, bytes =
+        run_download(snapshots, resume, dry_run, block)
 
-      if @concurrency == 1
-        download_sequential(snapshots, total, state, resume, progress)
-      else
-        download_concurrent(snapshots, total, state, resume, progress)
-      end
+      build_summary(start_time, snapshots.size, downloaded, skipped, bytes)
     end
 
     private
@@ -44,29 +46,75 @@ module Archaeo
         .select { |snap| !snap.blocked? && snap.status_code == 200 }
     end
 
-    def download_sequential(snapshots, total, state, resume, progress)
-      snapshots.each_with_index do |snap, index|
-        next if resume && state.completed?(snap.timestamp)
+    def run_download(snapshots, resume, dry_run, progress)
+      state = DownloadState.new(@output_dir)
+      total = snapshots.size
 
-        fetch_and_save(snap)
-        state.mark_completed(snap.timestamp)
-
-        progress&.call(index + 1, total, snap)
+      if @concurrency == 1
+        download_sequential(snapshots, total, state, resume,
+                            dry_run, progress)
+      else
+        download_concurrent(snapshots, total, state, resume,
+                            dry_run, progress)
       end
     end
 
-    def download_concurrent(snapshots, total, state, resume, progress)
+    def build_summary(start_time, total, downloaded, skipped, bytes)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
+      DownloadSummary.new(
+        total: total, downloaded: downloaded, skipped: skipped,
+        failed: 0, bytes_written: bytes, elapsed: elapsed
+      )
+    end
+
+    def download_sequential(snapshots, total, state, resume,
+                            dry_run, progress)
+      counters = { downloaded: 0, skipped: 0, bytes: 0 }
+
+      snapshots.each_with_index do |snap, index|
+        process_sequential(snap, state, resume, dry_run, counters)
+        progress&.call(index + 1, total, snap)
+      end
+
+      [counters[:downloaded], counters[:skipped], counters[:bytes]]
+    end
+
+    def process_sequential(snap, state, resume, dry_run, counters)
+      if resume && state.completed?(snap.timestamp)
+        counters[:skipped] += 1
+        return
+      end
+
+      counters[:bytes] += download_snapshot(snap, state) unless dry_run
+      counters[:downloaded] += 1
+    end
+
+    def download_snapshot(snap, state)
+      content = fetch_and_save(snap)
+      state.mark_completed(snap.timestamp, url: snap.original_url,
+                                           bytes: content.bytesize)
+      content.bytesize
+    end
+
+    def download_concurrent(snapshots, total, state, resume,
+                            dry_run, progress)
       queue = snapshots.each_with_index.to_a
-      mutex = Mutex.new
-      errors = []
+      shared = { mutex: Mutex.new, errors: [],
+                 downloaded: 0, skipped: 0, bytes: 0 }
 
       threads = Array.new(@concurrency) do
         Thread.new do
-          process_queue(queue, total, state, resume, progress, mutex, errors)
+          process_queue(queue, total, state, resume,
+                        dry_run, progress, shared)
         end
       end
       threads.each(&:join)
+      raise_on_errors(shared[:errors])
 
+      [shared[:downloaded], shared[:skipped], shared[:bytes]]
+    end
+
+    def raise_on_errors(errors)
       return unless errors.any?
 
       raise Error,
@@ -74,22 +122,42 @@ module Archaeo
             "#{errors.map { |s, _| s.timestamp }.join(', ')}"
     end
 
-    def process_queue(queue, total, state, resume, progress, mutex, errors)
+    def process_queue(queue, total, state, resume, dry_run,
+                      progress, shared)
       loop do
-        snap, index = mutex.synchronize { queue.shift }
+        snap, index = shared[:mutex].synchronize { queue.shift }
         break unless snap
 
-        next if resume && state.completed?(snap.timestamp)
-
-        begin
-          fetch_and_save(snap)
-          state.mark_completed(snap.timestamp)
-        rescue StandardError => e
-          mutex.synchronize { errors << [snap, e] }
+        if skip_snapshot?(snap, state, resume, shared)
+          progress&.call(index + 1, total, snap)
+          next
         end
 
+        concurrent_fetch(snap, state, dry_run, shared)
         progress&.call(index + 1, total, snap)
       end
+    end
+
+    def skip_snapshot?(snap, state, resume, shared)
+      return false unless resume && state.completed?(snap.timestamp)
+
+      shared[:mutex].synchronize { shared[:skipped] += 1 }
+      true
+    end
+
+    def concurrent_fetch(snap, state, dry_run, shared)
+      unless dry_run
+        content = fetch_and_save(snap)
+        shared[:mutex].synchronize do
+          state.mark_completed(snap.timestamp,
+                               url: snap.original_url,
+                               bytes: content.bytesize)
+          shared[:bytes] += content.bytesize
+        end
+      end
+      shared[:mutex].synchronize { shared[:downloaded] += 1 }
+    rescue StandardError => e
+      shared[:mutex].synchronize { shared[:errors] << [snap, e] }
     end
 
     def fetch_and_save(snapshot)
@@ -102,6 +170,7 @@ module Archaeo
       tmp_path = "#{filename}.tmp"
       File.binwrite(tmp_path, page.content)
       File.rename(tmp_path, filename)
+      page.content
     rescue StandardError
       FileUtils.rm_f(tmp_path) if defined?(tmp_path)
       raise

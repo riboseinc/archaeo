@@ -76,4 +76,44 @@ RSpec.describe Archaeo::AssetList do
       expect(list.media).to eq(["video.mp4"])
     end
   end
+
+  describe "#filter" do
+    it "returns a new list with only specified types" do
+      list.add("style.css", type: :css)
+      list.add("app.js", type: :js)
+      list.add("logo.png", type: :image)
+
+      filtered = list.filter(:css, :js)
+      expect(filtered.all).to contain_exactly("style.css", "app.js")
+      expect(filtered.images).to be_empty
+    end
+  end
+
+  describe "#merge" do
+    it "merges another AssetList" do
+      list.add("style.css", type: :css)
+      other = described_class.new
+      other.add("app.js", type: :js)
+      list.merge(other)
+      expect(list.all).to contain_exactly("style.css", "app.js")
+    end
+
+    it "deduplicates on merge" do
+      list.add("shared.css", type: :css)
+      other = described_class.new
+      other.add("shared.css", type: :css)
+      list.merge(other)
+      expect(list.css).to eq(["shared.css"])
+    end
+  end
+
+  describe ".from_json" do
+    it "reconstructs an AssetList from JSON" do
+      json = '{"css":["style.css"],"js":["app.js"],"image":["logo.png"]}'
+      list = described_class.from_json(json)
+      expect(list.css).to eq(["style.css"])
+      expect(list.js).to eq(["app.js"])
+      expect(list.images).to eq(["logo.png"])
+    end
+  end
 end

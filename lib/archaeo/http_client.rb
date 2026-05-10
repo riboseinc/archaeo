@@ -62,11 +62,13 @@ module Archaeo
     def initialize(timeout: DEFAULT_TIMEOUT,
                    max_retries: DEFAULT_MAX_RETRIES,
                    retry_delay: DEFAULT_RETRY_DELAY,
-                   user_agent: nil)
+                   user_agent: nil,
+                   on_request: nil)
       @timeout = timeout
       @max_retries = max_retries
       @retry_delay = retry_delay
       @user_agent = user_agent
+      @on_request = on_request
       @connections = {}
       @last_used = {}
       @mutex = Mutex.new
@@ -103,6 +105,18 @@ module Archaeo
           nil
         end
         @connections.clear
+      end
+    end
+
+    def pool_stats
+      now = Time.now
+      @mutex.synchronize do
+        {
+          active_connections: @connections.size,
+          max_pool_size: MAX_POOL_SIZE,
+          hosts: @connections.keys,
+          idle_times: @last_used.transform_values { |t| (now - t).round },
+        }.freeze
       end
     end
 
@@ -222,11 +236,16 @@ module Archaeo
       value = response.headers["retry-after"]
       return nil unless value
 
-      begin
-        Integer(value)
-      rescue StandardError
-        nil
-      end
+      Integer(value)
+    rescue ArgumentError
+      parse_retry_after_date(value)
+    end
+
+    def parse_retry_after_date(value)
+      remaining = (Time.httpdate(value) - Time.now).to_i
+      [remaining, 0].max
+    rescue ArgumentError
+      nil
     end
 
     def raise_if_exhausted(retries, error)
@@ -237,16 +256,29 @@ module Archaeo
     end
 
     def execute_with_connection(uri, headers, request_class)
-      http = connection_for(uri)
-      request = request_class.new(uri)
-      headers.each { |k, v| request[k] = v }
-      raw = http.request(request)
-      build_response(raw)
+      request = build_request(uri, headers, request_class)
+      execute_tracked_request(uri, request)
     rescue *TRANSIENT_ERRORS
       raise
     rescue StandardError
       invalidate_connection(uri)
       raise
+    end
+
+    def build_request(uri, headers, request_class)
+      request = request_class.new(uri)
+      headers.each { |k, v| request[k] = v }
+      request
+    end
+
+    def execute_tracked_request(uri, request)
+      http = connection_for(uri)
+      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      raw = http.request(request)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+      response = build_response(raw)
+      @on_request&.call(uri, elapsed, response.status, 0)
+      response
     end
 
     def default_headers

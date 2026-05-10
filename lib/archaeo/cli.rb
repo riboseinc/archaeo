@@ -9,6 +9,9 @@ module Archaeo
   class Cli < Thor
     map %w[--version -v] => :version
 
+    class_option :quiet, type: :boolean, default: false,
+                         desc: "Suppress progress messages"
+
     def self.exit_on_failure?
       true
     end
@@ -65,6 +68,39 @@ module Archaeo
       end
     end
 
+    desc "before URL TIMESTAMP",
+         "Find the nearest snapshot before a timestamp"
+    option :format, desc: "Output format (url, json)", default: "url"
+    def before(url, timestamp)
+      handle_errors do
+        snap = CdxApi.new.before(url, timestamp: timestamp)
+        output_snapshot(snap)
+      end
+    end
+
+    desc "after URL TIMESTAMP",
+         "Find the nearest snapshot after a timestamp"
+    option :format, desc: "Output format (url, json)", default: "url"
+    def after(url, timestamp)
+      handle_errors do
+        snap = CdxApi.new.after(url, timestamp: timestamp)
+        output_snapshot(snap)
+      end
+    end
+
+    desc "between URL FROM TO",
+         "List snapshots in a date range"
+    option :format, desc: "Output format (table, json, csv)",
+                    default: "table"
+    def between(url, from, to)
+      fmt = validate_output_format
+      handle_errors do
+        cdx = CdxApi.new
+        snaps = cdx.between(url, from: from, to: to).to_a
+        output_formatted(snaps, fmt)
+      end
+    end
+
     desc "available URL", "Check if a URL is archived"
     option :timestamp, desc: "Check near this timestamp (YYYYMMDDHHmmss)"
     def available(url)
@@ -105,6 +141,18 @@ module Archaeo
       end
     end
 
+    desc "fetch-assets URL TIMESTAMP",
+         "Fetch a page and list its extracted assets"
+    option :format, desc: "Output format (json, table)", default: "table"
+    def fetch_assets(url, timestamp)
+      handle_errors do
+        bundle = Fetcher.new.fetch_page_with_assets(
+          url, timestamp: timestamp
+        )
+        output_assets(bundle)
+      end
+    end
+
     desc "download URL", "Download all archived snapshots of a URL"
     option :output, desc: "Output directory", default: "archive"
     option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
@@ -113,6 +161,8 @@ module Archaeo
                     desc: "Resume interrupted download"
     option :concurrency, type: :numeric, default: 1,
                          desc: "Number of parallel downloads"
+    option :dry_run, type: :boolean, default: false,
+                     desc: "Preview downloads without fetching"
     def download(url)
       handle_errors do
         downloader = BulkDownloader.new(
@@ -141,6 +191,14 @@ module Archaeo
       end
     end
 
+    desc "count URL",
+         "Count snapshots for a URL"
+    def count(url)
+      handle_errors do
+        puts CdxApi.new.count(url)
+      end
+    end
+
     CDX_OPTION_MAP = {
       from: :from,
       to: :to,
@@ -152,6 +210,10 @@ module Archaeo
     }.freeze
 
     private
+
+    def quiet?
+      options[:quiet]
+    end
 
     def handle_errors
       yield
@@ -214,16 +276,40 @@ module Archaeo
       end
     end
 
-    def download_with_progress(downloader, url)
-      downloader.download(
-        url,
-        from: options[:from],
-        to: options[:to],
-        resume: options[:resume],
-      ) do |current, total, snap|
-        warn "[#{current}/#{total}] " \
-             "#{snap.timestamp} #{snap.original_url}"
+    def output_assets(bundle)
+      case options[:format]
+      when "json"
+        puts bundle.assets.to_json
+      else
+        bundle.assets.to_h.each do |type, urls|
+          next if urls.empty?
+
+          puts "#{type}:"
+          urls.each { |url| puts "  #{url}" }
+        end
       end
+    end
+
+    def download_with_progress(downloader, url)
+      summary = downloader.download(
+        url, from: options[:from], to: options[:to],
+             resume: options[:resume], dry_run: options[:dry_run]
+      ) { |c, t, s| print_progress(c, t, s) }
+      print_summary(summary)
+    end
+
+    def print_progress(current, total, snap)
+      return if quiet?
+
+      warn "[#{current}/#{total}] #{snap.timestamp} #{snap.original_url}"
+    end
+
+    def print_summary(summary)
+      return if quiet?
+
+      warn "Downloaded #{summary.downloaded}/#{summary.total} " \
+           "(#{summary.bytes_written} bytes) in " \
+           "#{summary.elapsed.round(1)}s"
     end
 
     def build_cdx_options(opts)
@@ -259,7 +345,7 @@ module Archaeo
     def write_output(path, content)
       FileUtils.mkdir_p(File.dirname(path))
       File.binwrite(path, content)
-      warn "Written to #{path}"
+      warn "Written to #{path}" unless quiet?
     end
   end
 end
