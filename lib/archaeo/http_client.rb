@@ -15,6 +15,10 @@ module Archaeo
     DEFAULT_TIMEOUT = 30
     DEFAULT_MAX_RETRIES = 3
     DEFAULT_RETRY_DELAY = 2
+    MAX_POOL_SIZE = 8
+    MAX_IDLE_TIME = 60
+
+    RETRIABLE_STATUSES = [429, 502, 503, 504].freeze
 
     TRANSIENT_ERRORS = [
       Net::ReadTimeout,
@@ -64,7 +68,16 @@ module Archaeo
       @retry_delay = retry_delay
       @user_agent = user_agent
       @connections = {}
+      @last_used = {}
       @mutex = Mutex.new
+      @shutdown = false
+    end
+
+    def self.open(**opts)
+      client = new(**opts)
+      yield client
+    ensure
+      client&.shutdown
     end
 
     def get(url, headers: {})
@@ -81,6 +94,8 @@ module Archaeo
 
     def shutdown
       @mutex.synchronize do
+        return if @shutdown
+        @shutdown = true
         @connections.each_value do |http|
           http.finish
         rescue StandardError
@@ -103,12 +118,18 @@ module Archaeo
     def connection_for(uri)
       key = connection_key(uri)
       @mutex.synchronize do
+        evict_stale_connections
+        if @connections.size >= MAX_POOL_SIZE && !@connections.key?(key)
+          evict_lru
+        end
+
         http = @connections[key]
         if http && !http.active?
-          @connections.delete(key)
+          close_connection(key)
           http = nil
         end
         @connections[key] = build_connection(uri) unless http
+        @last_used[key] = Time.now
         @connections[key]
       end
     end
@@ -124,20 +145,56 @@ module Archaeo
 
     def invalidate_connection(uri)
       key = connection_key(uri)
-      @mutex.synchronize do
-        http = @connections.delete(key)
-        begin
-          http&.finish
-        rescue StandardError
-          nil
-        end
+      @mutex.synchronize { close_connection(key) }
+    end
+
+    def close_connection(key)
+      http = @connections.delete(key)
+      @last_used.delete(key)
+      begin
+        http&.finish
+      rescue StandardError
+        nil
+      end
+    end
+
+    def evict_stale_connections
+      now = Time.now
+      @connections.each do |key, _|
+        idle = now - (@last_used[key] || now)
+        close_connection(key) if idle > MAX_IDLE_TIME
+      end
+    end
+
+    def evict_lru
+      lru_key = @last_used.min_by { |_, t| t }&.first
+      close_connection(lru_key) if lru_key
+    end
+
+    # Internal error class for HTTP status retry signaling
+    class RetriableStatusError < StandardError
+      attr_reader :response
+
+      def initialize(response)
+        @response = response
+        super("Retriable HTTP status: #{response.status}")
       end
     end
 
     def attempt_with_retries(uri, headers, request_class)
       retries = 0
       begin
-        execute_with_connection(uri, headers, request_class)
+        response = execute_with_connection(uri, headers, request_class)
+        raise RetriableStatusError, response if RETRIABLE_STATUSES.include?(response.status)
+
+        response
+      rescue RetriableStatusError => e
+        retries += 1
+        raise_if_exhausted(retries,
+                           RateLimitError.new("HTTP #{e.response.status}"))
+        delay = extract_retry_after(e.response) || (@retry_delay * retries)
+        sleep(delay)
+        retry
       rescue *TRANSIENT_ERRORS => e
         retries += 1
         raise_if_exhausted(retries, e)
@@ -145,6 +202,13 @@ module Archaeo
         sleep(@retry_delay * retries)
         retry
       end
+    end
+
+    def extract_retry_after(response)
+      value = response.headers["retry-after"]
+      return nil unless value
+
+      Integer(value) rescue nil
     end
 
     def raise_if_exhausted(retries, error)
