@@ -49,6 +49,11 @@ near   = cdx.near("example.com", timestamp: "20220101")
 before = cdx.before("example.com", timestamp: "20220101")
 after  = cdx.after("example.com", timestamp: "20220101")
 
+# Time range query
+cdx.between("example.com", from: "20220101", to: "20221231").each do |snap|
+  puts snap.timestamp
+end
+
 # Filter by status code, mimetype, or URL pattern
 cdx.snapshots("example.com",
   filters: [Archaeo::CdxFilter.by_status(200)],
@@ -56,6 +61,13 @@ cdx.snapshots("example.com",
   match_type: "domain",
   sort: "reverse",
 )
+
+# Compose multiple filters
+filters = Archaeo::CdxFilter.combine(
+  Archaeo::CdxFilter.only_successful,
+  Archaeo::CdxFilter.excluding_mimetype("text/css"),
+)
+cdx.snapshots("example.com", filters: filters)
 
 # Page-based pagination
 cdx.snapshots("example.com", page: 0)
@@ -77,6 +89,7 @@ result = api.near("example.com")
 result.available?   # => true/false
 result.archive_url  # => "https://web.archive.org/web/..."
 result.timestamp    # => Archaeo::Timestamp
+result.archived_status  # => HTTP status code of the archived page
 
 api.available?("example.com")  # => true/false
 ----
@@ -87,6 +100,7 @@ api.available?("example.com")  # => true/false
 ----
 save = Archaeo::SaveApi.new
 result = save.save("https://example.com/")
+result.url          # => "https://example.com/"
 result.archive_url  # => "https://web.archive.org/web/..."
 result.timestamp    # => Archaeo::Timestamp
 result.cached?      # => true if already archived
@@ -104,6 +118,10 @@ page.content        # => "<html>...</html>"
 page.content_type   # => "text/html"
 page.status_code    # => 200
 page.archive_url    # => full archive URL
+page.title          # => "Example Domain"
+page.html?          # => true
+page.json?          # => false
+page.size           # => content length in bytes
 
 # Raw (identity) mode -- no Wayback Machine rewriting
 page = fetcher.fetch("https://example.com/",
@@ -126,6 +144,12 @@ bundle.assets.js   # => ["https://example.com/app.js", ...]
 bundle.assets.images
 bundle.assets.fonts
 bundle.assets.media
+bundle.size        # => total count (page + assets)
+bundle.asset_count # => number of assets
+
+# Serialize asset list
+bundle.assets.to_json
+bundle.assets.counts  # => { css: 1, js: 2, image: 3, font: 0, media: 1 }
 ----
 
 === Bulk Download with Resume
@@ -143,6 +167,12 @@ downloader.download("example.com", resume: true)
 # Filter by date range
 downloader.download("example.com",
                     from: "20220101", to: "20221231")
+
+# Parallel downloads
+downloader = Archaeo::BulkDownloader.new(
+  output_dir: "archive", concurrency: 4,
+)
+downloader.download("example.com")
 ----
 
 === URL Normalization
@@ -168,6 +198,33 @@ Archaeo::CdxFilter.by_status(200)           # => "statuscode:200"
 Archaeo::CdxFilter.excluding_status(404)    # => "!statuscode:404"
 Archaeo::CdxFilter.by_mimetype("text/html") # => "mimetype:text/html"
 Archaeo::CdxFilter.by_url("example.com")    # => "original:example.com"
+
+# Compose filters
+filters = Archaeo::CdxFilter.only_successful
+error_filters = Archaeo::CdxFilter.excluding_errors
+----
+
+=== Snapshot Convenience
+
+[source,ruby]
+----
+snap = cdx.near("example.com", timestamp: "20220101")
+
+# Status predicates
+snap.success?       # => true (200)
+snap.redirect?      # => true for 3xx
+snap.client_error?  # => true for 4xx
+snap.server_error?  # => true for 5xx
+snap.error?         # => true for 4xx/5xx
+
+# Fetch content directly from a snapshot
+page = snap.fetch
+
+# Fetch with assets
+bundle = snap.fetch_with_assets
+
+# JSON-serializable representation
+snap.as_json  # => Hash with primitive values only
 ----
 
 === Timestamps
@@ -189,6 +246,15 @@ ts = Archaeo::Timestamp.now
 # Format as 14-digit string
 ts.to_s  # => "20220615000000"
 
+# Standard time formats
+ts.to_iso8601  # => "2022-06-15T00:00:00Z"
+ts.to_rfc3339  # => "2022-06-15T00:00:00+00:00"
+
+# Arithmetic
+ts + 3600          # => Timestamp one hour later
+ts - 3600          # => Timestamp one hour earlier
+ts1 - ts2          # => seconds between timestamps
+
 # Comparison
 ts1 < ts2   # => true/false
 ----
@@ -207,9 +273,15 @@ archaeo snapshots --format csv --from 20220101 --to 20221231 example.com
 
 # Find closest snapshot
 archaeo near example.com 20220101
+archaeo near --format json example.com 20220101
 
-# Check availability
+# Find oldest/newest
+archaeo oldest example.com
+archaeo newest --format json example.com
+
+# Check availability (with optional timestamp)
 archaeo available example.com
+archaeo available --timestamp 20220101 example.com
 
 # Save a URL
 archaeo save https://example.com/
@@ -225,6 +297,9 @@ archaeo fetch --identity https://example.com/ 20220615120000
 
 # Download all snapshots
 archaeo download example.com --output ./archive
+
+# Parallel downloads
+archaeo download --concurrency 4 example.com --output ./archive
 
 # Resume interrupted download
 archaeo download example.com --resume
@@ -267,7 +342,7 @@ Archaeo follows a model-driven, OOP design:
 
 | *URL Processing*
 | `UrlNormalizer`, `CdxFilter`, `UrlRewriter`
-| URL sanitization, filtering, and rewriting
+| URL sanitization, validated filtering with composition, and rewriting
 
 | *Asset Extraction*
 | `AssetExtractor`, `AssetList`
@@ -283,7 +358,7 @@ Archaeo follows a model-driven, OOP design:
 
 | *Infrastructure*
 | `HttpClient`
-| HTTP transport with retries, gzip, connection pooling
+| HTTP transport with retries, gzip, 429/503 handling, connection pooling with eviction
 |===
 
 All API classes accept an `HttpClient` via dependency injection for testability.
