@@ -30,22 +30,10 @@ module Archaeo
     option :format, desc: "Output format (table, json, csv)",
                     default: "table"
     def snapshots(url)
-      fmt = options[:format].to_s
-      fmt = "table" if fmt.empty?
-      unless %w[table json csv].include?(fmt)
-        warn "Unknown format '#{fmt}'. Use: table, json, csv"
-        exit 1
-      end
-
+      fmt = validate_output_format
       handle_errors do
-        cdx = CdxApi.new
-        opts = build_cdx_options(options)
-        snaps = cdx.snapshots(url, **opts).to_a
-        case fmt
-        when "json" then output_json(snaps)
-        when "csv" then output_csv(snaps)
-        else output_table(snaps)
-        end
+        snaps = fetch_snapshots(url)
+        output_formatted(snaps, fmt)
       end
     end
 
@@ -55,12 +43,7 @@ module Archaeo
     def near(url, timestamp)
       handle_errors do
         snap = CdxApi.new.near(url, timestamp: timestamp)
-        case options[:format]
-        when "json"
-          puts JSON.generate(snap.as_json)
-        else
-          puts snap.archive_url
-        end
+        output_snapshot(snap)
       end
     end
 
@@ -69,12 +52,7 @@ module Archaeo
     def oldest(url)
       handle_errors do
         snap = CdxApi.new.oldest(url)
-        case options[:format]
-        when "json"
-          puts JSON.generate(snap.as_json)
-        else
-          puts snap.archive_url
-        end
+        output_snapshot(snap)
       end
     end
 
@@ -83,12 +61,7 @@ module Archaeo
     def newest(url)
       handle_errors do
         snap = CdxApi.new.newest(url)
-        case options[:format]
-        when "json"
-          puts JSON.generate(snap.as_json)
-        else
-          puts snap.archive_url
-        end
+        output_snapshot(snap)
       end
     end
 
@@ -97,7 +70,7 @@ module Archaeo
     def available(url)
       handle_errors do
         result = AvailabilityApi.new.near(
-          url, timestamp: options[:timestamp],
+          url, timestamp: options[:timestamp]
         )
         if result.available?
           puts "Available: #{result.archive_url}"
@@ -126,18 +99,9 @@ module Archaeo
       handle_errors do
         page = Fetcher.new.fetch(
           url, timestamp: timestamp,
-               identity: options[:identity],
+               identity: options[:identity]
         )
-
-        if options[:output]
-          write_output(options[:output], page.content)
-        elsif page.text? || page.json?
-          $stdout.write(page.content)
-        else
-          warn "Binary content (#{page.content_type}). " \
-               "Use --output FILE to save."
-          exit 1
-        end
+        output_page(page)
       end
     end
 
@@ -155,16 +119,7 @@ module Archaeo
           output_dir: options[:output],
           concurrency: options[:concurrency],
         )
-
-        downloader.download(
-          url,
-          from: options[:from],
-          to: options[:to],
-          resume: options[:resume],
-        ) do |current, total, snap|
-          warn "[#{current}/#{total}] " \
-               "#{snap.timestamp} #{snap.original_url}"
-        end
+        download_with_progress(downloader, url)
       end
     end
 
@@ -212,6 +167,63 @@ module Archaeo
     rescue Error => e
       warn "Error: #{e.message}"
       exit 1
+    end
+
+    def validate_output_format
+      fmt = options[:format].to_s
+      fmt = "table" if fmt.empty?
+      unless %w[table json csv].include?(fmt)
+        warn "Unknown format '#{fmt}'. Use: table, json, csv"
+        exit 1
+      end
+      fmt
+    end
+
+    def fetch_snapshots(url)
+      cdx = CdxApi.new
+      opts = build_cdx_options(options)
+      cdx.snapshots(url, **opts).to_a
+    end
+
+    def output_formatted(snaps, fmt)
+      case fmt
+      when "json" then output_json(snaps)
+      when "csv" then output_csv(snaps)
+      else output_table(snaps)
+      end
+    end
+
+    def output_snapshot(snap)
+      case options[:format]
+      when "json"
+        puts JSON.generate(snap.as_json)
+      else
+        puts snap.archive_url
+      end
+    end
+
+    def output_page(page)
+      if options[:output]
+        write_output(options[:output], page.content)
+      elsif page.text? || page.json?
+        $stdout.write(page.content)
+      else
+        warn "Binary content (#{page.content_type}). " \
+             "Use --output FILE to save."
+        exit 1
+      end
+    end
+
+    def download_with_progress(downloader, url)
+      downloader.download(
+        url,
+        from: options[:from],
+        to: options[:to],
+        resume: options[:resume],
+      ) do |current, total, snap|
+        warn "[#{current}/#{total}] " \
+             "#{snap.timestamp} #{snap.original_url}"
+      end
     end
 
     def build_cdx_options(opts)

@@ -79,7 +79,10 @@ module Archaeo
     private
 
     def validate!
-      raise ArgumentError, "CDX filter expression cannot be empty" if @expression.empty?
+      if @expression.empty?
+        raise ArgumentError,
+              "CDX filter expression cannot be empty"
+      end
 
       field_name = field
       return if VALID_FIELDS.include?(field_name)

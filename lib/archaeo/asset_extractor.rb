@@ -18,6 +18,12 @@ module Archaeo
       cloud.typography.com
     ].freeze
 
+    CSS_URL_PATTERN = /url\(\s*['"]?([^'")\s]+)['"]?\s*\)/
+    CSS_IMAGE_PROPS = Regexp.new(
+      "(?:background-image|background|list-style-image|content|cursor)" \
+      "\\s*:[^;]*#{CSS_URL_PATTERN.source}",
+    )
+
     def initialize(html, base_url: nil)
       @doc = Nokogiri::HTML(html.to_s)
       @base_url = base_url
@@ -50,20 +56,29 @@ module Archaeo
     end
 
     def extract_images(list)
+      extract_img_tags(list)
+      extract_picture_sources(list)
+      extract_lazy_images(list)
+      extract_icon_links(list)
+    end
+
+    def extract_img_tags(list)
       @doc.css("img[src]").each do |el|
         list.add(resolve(el["src"]), type: :image)
         extract_srcset(el["srcset"], list, :image)
       end
+    end
 
+    def extract_picture_sources(list)
       @doc.css("picture source[srcset]").each do |el|
         extract_srcset(el["srcset"], list, :image)
       end
+    end
 
+    def extract_lazy_images(list)
       @doc.css("img[data-src]").each do |el|
         list.add(resolve(el["data-src"]), type: :image)
       end
-
-      extract_icon_links(list)
     end
 
     def extract_icon_links(list)
@@ -92,12 +107,24 @@ module Archaeo
     end
 
     def extract_media(list)
+      extract_media_sources(list)
+      extract_video_posters(list)
+      extract_embeds(list)
+    end
+
+    def extract_media_sources(list)
       @doc.css("source[src], video[src], audio[src]").each do |el|
         list.add(resolve(el["src"]), type: :media)
       end
+    end
+
+    def extract_video_posters(list)
       @doc.css("video[poster]").each do |el|
         list.add(resolve(el["poster"]), type: :image)
       end
+    end
+
+    def extract_embeds(list)
       @doc.css("iframe[src], embed[src]").each do |el|
         list.add(resolve(el["src"]), type: :media)
       end
@@ -151,9 +178,7 @@ module Archaeo
     end
 
     def extract_css_image_urls(text, list)
-      text.scan(
-        /(?:background-image|background|list-style-image|content|cursor)\s*:[^;]*url\(\s*['"]?([^'")\s]+)['"]?\s*\)/,
-      ).flatten.each do |url|
+      text.scan(CSS_IMAGE_PROPS).flatten.each do |url|
         list.add(resolve(url), type: :image)
       end
     end

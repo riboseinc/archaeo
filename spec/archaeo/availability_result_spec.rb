@@ -31,7 +31,7 @@ RSpec.describe Archaeo::AvailabilityResult do
   it "exposes archived_status" do
     result = described_class.new(
       url: "example.com", available: true,
-      archived_status: 404,
+      archived_status: 404
     )
     expect(result.archived_status).to eq(404)
   end
@@ -40,7 +40,7 @@ RSpec.describe Archaeo::AvailabilityResult do
     result = described_class.new(
       url: "example.com", available: true,
       archive_url: "https://web.archive.org/web/20220113130051/https://example.com/",
-      timestamp: ts,
+      timestamp: ts
     )
     expect(result.to_s).to include("example.com")
     expect(result.to_s).to include("web.archive.org")

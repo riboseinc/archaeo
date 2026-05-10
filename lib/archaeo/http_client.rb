@@ -95,6 +95,7 @@ module Archaeo
     def shutdown
       @mutex.synchronize do
         return if @shutdown
+
         @shutdown = true
         @connections.each_value do |http|
           http.finish
@@ -118,11 +119,7 @@ module Archaeo
     def connection_for(uri)
       key = connection_key(uri)
       @mutex.synchronize do
-        evict_stale_connections
-        if @connections.size >= MAX_POOL_SIZE && !@connections.key?(key)
-          evict_lru
-        end
-
+        evict_if_pool_full(key)
         http = @connections[key]
         if http && !http.active?
           close_connection(key)
@@ -132,6 +129,14 @@ module Archaeo
         @last_used[key] = Time.now
         @connections[key]
       end
+    end
+
+    def evict_if_pool_full(key)
+      evict_stale_connections
+      return unless @connections.size >= MAX_POOL_SIZE &&
+        !@connections.key?(key)
+
+      evict_lru
     end
 
     def build_connection(uri)
@@ -160,7 +165,7 @@ module Archaeo
 
     def evict_stale_connections
       now = Time.now
-      @connections.each do |key, _|
+      @connections.each_key do |key|
         idle = now - (@last_used[key] || now)
         close_connection(key) if idle > MAX_IDLE_TIME
       end
@@ -184,31 +189,44 @@ module Archaeo
     def attempt_with_retries(uri, headers, request_class)
       retries = 0
       begin
-        response = execute_with_connection(uri, headers, request_class)
-        raise RetriableStatusError, response if RETRIABLE_STATUSES.include?(response.status)
-
-        response
+        execute_and_check(uri, headers, request_class)
       rescue RetriableStatusError => e
-        retries += 1
-        raise_if_exhausted(retries,
-                           RateLimitError.new("HTTP #{e.response.status}"))
-        delay = extract_retry_after(e.response) || (@retry_delay * retries)
-        sleep(delay)
-        retry
+        retry_status(e, retries += 1) && retry
       rescue *TRANSIENT_ERRORS => e
-        retries += 1
-        raise_if_exhausted(retries, e)
-        invalidate_connection(uri)
-        sleep(@retry_delay * retries)
-        retry
+        retry_transient(e, uri, retries += 1) && retry
       end
+    end
+
+    def retry_status(error, retries)
+      raise_if_exhausted(retries,
+                         RateLimitError.new("HTTP #{error.response.status}"))
+      sleep(extract_retry_after(error.response) || (@retry_delay * retries))
+    end
+
+    def retry_transient(error, uri, retries)
+      raise_if_exhausted(retries, error)
+      invalidate_connection(uri)
+      sleep(@retry_delay * retries)
+    end
+
+    def execute_and_check(uri, headers, request_class)
+      response = execute_with_connection(uri, headers, request_class)
+      if RETRIABLE_STATUSES.include?(response.status)
+        raise RetriableStatusError, response
+      end
+
+      response
     end
 
     def extract_retry_after(response)
       value = response.headers["retry-after"]
       return nil unless value
 
-      Integer(value) rescue nil
+      begin
+        Integer(value)
+      rescue StandardError
+        nil
+      end
     end
 
     def raise_if_exhausted(retries, error)

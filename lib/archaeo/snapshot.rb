@@ -55,13 +55,13 @@ module Archaeo
 
     def fetch(client: HttpClient.new, identity: false)
       Fetcher.new(client: client).fetch(
-        original_url, timestamp: @timestamp, identity: identity,
+        original_url, timestamp: @timestamp, identity: identity
       )
     end
 
     def fetch_with_assets(client: HttpClient.new)
       Fetcher.new(client: client).fetch_page_with_assets(
-        original_url, timestamp: @timestamp,
+        original_url, timestamp: @timestamp
       )
     end
 

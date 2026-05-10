@@ -17,15 +17,15 @@ module Archaeo
       @concurrency = [1, concurrency.to_i].max
     end
 
-    def download(url, from: nil, to: nil, resume: false)
+    def download(url, from: nil, to: nil, resume: false, &block)
       url = UrlNormalizer.normalize(url)
       FileUtils.mkdir_p(@output_dir)
       state = DownloadState.new(@output_dir)
 
       snapshots = fetch_snapshots(url, from: from, to: to)
       total = snapshots.size
+      progress = block
 
-      progress = block_given? ? ->(i, t, s) { yield(i, t, s) } : nil
       if @concurrency == 1
         download_sequential(snapshots, total, state, resume, progress)
       else
@@ -62,21 +62,7 @@ module Archaeo
 
       threads = Array.new(@concurrency) do
         Thread.new do
-          loop do
-            snap, index = mutex.synchronize { queue.shift }
-            break unless snap
-
-            next if resume && state.completed?(snap.timestamp)
-
-            begin
-              fetch_and_save(snap)
-              state.mark_completed(snap.timestamp)
-            rescue StandardError => e
-              mutex.synchronize { errors << [snap, e] }
-            end
-
-            progress&.call(index + 1, total, snap)
-          end
+          process_queue(queue, total, state, resume, progress, mutex, errors)
         end
       end
       threads.each(&:join)
@@ -86,6 +72,24 @@ module Archaeo
       raise Error,
             "#{errors.size} download(s) failed: " \
             "#{errors.map { |s, _| s.timestamp }.join(', ')}"
+    end
+
+    def process_queue(queue, total, state, resume, progress, mutex, errors)
+      loop do
+        snap, index = mutex.synchronize { queue.shift }
+        break unless snap
+
+        next if resume && state.completed?(snap.timestamp)
+
+        begin
+          fetch_and_save(snap)
+          state.mark_completed(snap.timestamp)
+        rescue StandardError => e
+          mutex.synchronize { errors << [snap, e] }
+        end
+
+        progress&.call(index + 1, total, snap)
+      end
     end
 
     def fetch_and_save(snapshot)
