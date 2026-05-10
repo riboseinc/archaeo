@@ -59,10 +59,27 @@ module Archaeo
       new("urlkey:#{pattern}")
     end
 
+    def and(other)
+      [self, other]
+    end
+
+    def self.combine(*filters)
+      filters.flatten
+    end
+
+    def self.only_successful
+      [by_status(200)]
+    end
+
+    def self.excluding_errors
+      [excluding_status(404), excluding_status(500),
+       excluding_status(502), excluding_status(503)]
+    end
+
     private
 
     def validate!
-      return if @expression.empty?
+      raise ArgumentError, "CDX filter expression cannot be empty" if @expression.empty?
 
       field_name = field
       return if VALID_FIELDS.include?(field_name)

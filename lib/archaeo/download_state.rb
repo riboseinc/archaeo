@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 module Archaeo
   # Tracks download progress for resume support.
   #
@@ -17,16 +19,21 @@ module Archaeo
     end
 
     def completed?(timestamp)
-      timestamps.include?(timestamp.to_s)
+      timestamps_set.include?(timestamp.to_s)
     end
 
     def mark_completed(timestamp)
-      timestamps << timestamp.to_s
+      ts = timestamp.to_s
+      return if timestamps_set.include?(ts)
+
+      timestamps << ts
+      @timestamps_set = nil
       save
     end
 
     def clear
       @timestamps = []
+      @timestamps_set = nil
       FileUtils.rm_f(@path)
     end
 
@@ -36,6 +43,10 @@ module Archaeo
       @timestamps ||= load_timestamps
     end
 
+    def timestamps_set
+      @timestamps_set ||= timestamps.to_set
+    end
+
     def load_timestamps
       return [] unless File.exist?(@path)
 
@@ -43,7 +54,10 @@ module Archaeo
     end
 
     def save
-      File.write(@path, "#{timestamps.uniq.sort.join("\n")}\n")
+      content = "#{timestamps.sort.join("\n")}\n"
+      tmp_path = "#{@path}.tmp"
+      File.write(tmp_path, content)
+      File.rename(tmp_path, @path)
     end
   end
 end
