@@ -10,6 +10,7 @@ module Archaeo
   # rooted at a configurable local directory.
   class UrlRewriter
     URL_ATTRS = %w[src href data-src poster].freeze
+    CSS_URL_RE = /url\(\s*['"]?([^'")\s]+)['"]?\s*\)/
 
     def initialize(archive_prefix, local_prefix)
       @archive_prefix = archive_prefix.to_s
@@ -31,6 +32,8 @@ module Archaeo
       doc = Nokogiri::HTML(html_content)
       rewrite_url_attrs(doc)
       rewrite_srcset_attrs(doc)
+      rewrite_inline_style_attrs(doc)
+      rewrite_style_elements(doc)
       doc.to_html
     end
 
@@ -52,6 +55,28 @@ module Archaeo
     end
 
     private
+
+    def rewrite_inline_style_attrs(doc)
+      doc.css("[style]").each do |el|
+        next unless el["style"]
+
+        el["style"] = rewrite_css_urls(el["style"])
+      end
+    end
+
+    def rewrite_style_elements(doc)
+      doc.css("style").each do |el|
+        el.content = rewrite_css_urls(el.text)
+      end
+    end
+
+    def rewrite_css_urls(css_text)
+      css_text.gsub(CSS_URL_RE) do
+        url = Regexp.last_match[1]
+        rewritten = url.start_with?(@archive_prefix) ? rewrite(url) : url
+        "url('#{rewritten}')"
+      end
+    end
 
     def rewrite_srcset(srcset)
       return srcset unless srcset

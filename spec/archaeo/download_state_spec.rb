@@ -95,4 +95,30 @@ RSpec.describe Archaeo::DownloadState do
       expect(File.exist?(path)).to be false
     end
   end
+
+  describe "#size" do
+    it "returns the number of completed entries" do
+      state.mark_completed("20220101000000")
+      state.mark_completed("20220102000000")
+      expect(state.size).to eq(2)
+    end
+  end
+
+  describe "#timestamps" do
+    it "returns an array of timestamp strings" do
+      state.mark_completed("20220101000000")
+      state.mark_completed("20220102000000")
+      expect(state.timestamps).to eq(%w[20220101000000 20220102000000])
+    end
+  end
+
+  describe "thread safety" do
+    it "handles concurrent mark_completed calls" do
+      threads = Array.new(10) do |i|
+        Thread.new { state.mark_completed(format("202206%02d000000", i + 1)) }
+      end
+      threads.each(&:join)
+      expect(state.size).to eq(10)
+    end
+  end
 end

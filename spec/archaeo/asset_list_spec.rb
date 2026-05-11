@@ -107,6 +107,40 @@ RSpec.describe Archaeo::AssetList do
     end
   end
 
+  describe "#domain_counts" do
+    it "counts URLs by domain" do
+      list.add("https://cdn.example.com/style.css", type: :css)
+      list.add("https://cdn.example.com/app.js", type: :js)
+      list.add("https://other.com/logo.png", type: :image)
+
+      counts = list.domain_counts
+      expect(counts["cdn.example.com"]).to eq(2)
+      expect(counts["other.com"]).to eq(1)
+    end
+
+    it "handles relative URLs" do
+      list.add("/style.css", type: :css)
+      counts = list.domain_counts
+      expect(counts["(relative)"]).to eq(1)
+    end
+  end
+
+  describe "#downloadable" do
+    it "excludes data: URLs" do
+      list.add("https://example.com/style.css", type: :css)
+      list.add("data:image/png;base64,abc123", type: :image)
+      downloadable = list.downloadable
+      expect(downloadable.all).to eq(["https://example.com/style.css"])
+    end
+
+    it "excludes fragment-only URLs" do
+      list.add("https://example.com/style.css", type: :css)
+      list.add("#section", type: :image)
+      downloadable = list.downloadable
+      expect(downloadable.all).to eq(["https://example.com/style.css"])
+    end
+  end
+
   describe ".from_json" do
     it "reconstructs an AssetList from JSON" do
       json = '{"css":["style.css"],"js":["app.js"],"image":["logo.png"]}'

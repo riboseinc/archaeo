@@ -212,4 +212,71 @@ RSpec.describe Archaeo::Page do
       expect(page.inspect).to eq("#<Archaeo::Page text/html 5 bytes>")
     end
   end
+
+  describe "#links" do
+    it "extracts links from HTML pages" do
+      html = "<html><body>" \
+             '<a href="https://example.com/about">About</a>' \
+             '<a href="https://other.com/page">External</a>' \
+             "</body></html>"
+      page = described_class.new(
+        content: html, content_type: "text/html", status_code: 200,
+        archive_url: "https://web.archive.org/web/20220615000000/https://example.com/",
+        original_url: "https://example.com/", timestamp: ts
+      )
+      links = page.links
+      expect(links.length).to eq(2)
+      expect(links[0][:href]).to eq("https://example.com/about")
+      expect(links[0][:text]).to eq("About")
+      expect(links[0][:external]).to be false
+      expect(links[1][:external]).to be true
+    end
+
+    it "returns empty array for non-HTML pages" do
+      page = described_class.new(
+        content: '{"key":"value"}', content_type: "application/json",
+        status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+      )
+      expect(page.links).to eq([])
+    end
+
+    it "resolves relative links against archive URL" do
+      html = '<html><body><a href="about">About</a></body></html>'
+      page = described_class.new(
+        content: html, content_type: "text/html", status_code: 200,
+        archive_url: "https://web.archive.org/web/20220615000000/https://example.com/",
+        original_url: "https://example.com/", timestamp: ts
+      )
+      link = page.links.first
+      expect(link[:href]).to eq(
+        "https://web.archive.org/web/20220615000000/https://example.com/about",
+      )
+    end
+  end
+
+  describe "#meta_tags" do
+    it "extracts meta tags from HTML pages" do
+      html = "<html><head>" \
+             '<meta name="description" content="A test page">' \
+             '<meta property="og:title" content="Test">' \
+             '<link rel="canonical" href="https://example.com/">' \
+             "</head><body></body></html>"
+      page = described_class.new(
+        content: html, content_type: "text/html", status_code: 200,
+        archive_url: "u", original_url: "u", timestamp: ts
+      )
+      meta = page.meta_tags
+      expect(meta["description"]).to eq("A test page")
+      expect(meta["og:title"]).to eq("Test")
+      expect(meta["canonical"]).to eq("https://example.com/")
+    end
+
+    it "returns empty hash for non-HTML pages" do
+      page = described_class.new(
+        content: "body {}", content_type: "text/css",
+        status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+      )
+      expect(page.meta_tags).to eq({})
+    end
+  end
 end

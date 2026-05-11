@@ -23,6 +23,22 @@ module Archaeo
       attempt_save(save_url, start_time, url)
     end
 
+    def batch_save(urls, delay: 2, stop_on_error: false)
+      results = []
+      urls.each_with_index do |url, i|
+        sleep(delay) if i.positive?
+        result = save(url)
+        results << result
+      rescue RateLimitError, SaveFailed => e
+        raise e if stop_on_error
+
+        results << SaveResult.new(
+          url: url, archive_url: nil, timestamp: nil, cached: false,
+        )
+      end
+      results
+    end
+
     private
 
     def attempt_save(save_url, start_time, url)

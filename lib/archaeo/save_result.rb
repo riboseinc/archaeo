@@ -11,12 +11,16 @@ module Archaeo
     def initialize(url:, archive_url:, timestamp:, cached:)
       @url = url
       @archive_url = archive_url
-      @timestamp = Timestamp.coerce(timestamp)
+      @timestamp = timestamp ? Timestamp.coerce(timestamp) : nil
       @cached = cached
     end
 
     def cached?
       @cached
+    end
+
+    def success?
+      !@archive_url.nil?
     end
 
     def to_h

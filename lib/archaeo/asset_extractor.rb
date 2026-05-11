@@ -120,6 +120,7 @@ module Archaeo
       extract_media_sources(list)
       extract_video_posters(list)
       extract_embeds(list)
+      extract_tracks(list)
     end
 
     def extract_media_sources(list)
@@ -136,6 +137,15 @@ module Archaeo
 
     def extract_embeds(list)
       @doc.css("iframe[src], embed[src]").each do |el|
+        list.add(resolve(el["src"]), type: :media)
+      end
+      @doc.css("object[data]").each do |el|
+        list.add(resolve(el["data"]), type: :media)
+      end
+    end
+
+    def extract_tracks(list)
+      @doc.css("track[src]").each do |el|
         list.add(resolve(el["src"]), type: :media)
       end
     end

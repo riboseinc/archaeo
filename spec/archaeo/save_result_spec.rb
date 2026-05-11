@@ -79,4 +79,28 @@ RSpec.describe Archaeo::SaveResult do
       expect(subject.inspect).to include("cached=false")
     end
   end
+
+  describe "#success?" do
+    it "returns true when archive_url is present" do
+      expect(subject).to be_success
+    end
+
+    it "returns false when archive_url is nil" do
+      result = described_class.new(
+        url: "https://example.com/",
+        archive_url: nil, timestamp: nil, cached: false
+      )
+      expect(result).not_to be_success
+    end
+  end
+
+  describe "nil timestamp handling" do
+    it "accepts nil timestamp without error" do
+      result = described_class.new(
+        url: "https://example.com/",
+        archive_url: nil, timestamp: nil, cached: false
+      )
+      expect(result.timestamp).to be_nil
+    end
+  end
 end

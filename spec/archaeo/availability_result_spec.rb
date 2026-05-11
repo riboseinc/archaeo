@@ -79,4 +79,33 @@ RSpec.describe Archaeo::AvailabilityResult do
       expect(result.inspect).to include("available=true")
     end
   end
+
+  describe "#to_snapshot" do
+    it "returns a Snapshot when available" do
+      result = described_class.new(
+        url: "https://example.com/", available: true,
+        archive_url: "https://web.archive.org/web/20220113130051/https://example.com/",
+        timestamp: ts, archived_status: 200
+      )
+      snap = result.to_snapshot
+      expect(snap).to be_a(Archaeo::Snapshot)
+      expect(snap.original_url).to eq("https://example.com/")
+      expect(snap.status_code).to eq(200)
+    end
+
+    it "returns nil when unavailable" do
+      result = described_class.new(url: "example.com", available: false)
+      expect(result.to_snapshot).to be_nil
+    end
+
+    it "defaults status_code to 200 when archived_status is nil" do
+      result = described_class.new(
+        url: "https://example.com/", available: true,
+        archive_url: "https://web.archive.org/web/20220113130051/https://example.com/",
+        timestamp: ts
+      )
+      snap = result.to_snapshot
+      expect(snap.status_code).to eq(200)
+    end
+  end
 end

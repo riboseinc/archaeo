@@ -16,6 +16,17 @@ module Archaeo
   class SaveFailed < Error; end
   class IntegrityError < Error; end
 
+  class FetchError < Error
+    attr_reader :status_code, :url, :page
+
+    def initialize(message, status_code:, url:, page:)
+      super(message)
+      @status_code = status_code
+      @url = url
+      @page = page
+    end
+  end
+
   autoload :Timestamp, "archaeo/timestamp"
   autoload :ArchiveUrl, "archaeo/archive_url"
   autoload :Snapshot, "archaeo/snapshot"
@@ -25,6 +36,7 @@ module Archaeo
   autoload :AvailabilityResult, "archaeo/availability_result"
   autoload :UrlNormalizer, "archaeo/url_normalizer"
   autoload :CdxFilter, "archaeo/cdx_filter"
+  autoload :CdxTimeline, "archaeo/cdx_timeline"
   autoload :AssetList, "archaeo/asset_list"
   autoload :AssetExtractor, "archaeo/asset_extractor"
   autoload :UrlRewriter, "archaeo/url_rewriter"

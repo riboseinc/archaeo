@@ -72,4 +72,34 @@ RSpec.describe Archaeo::HttpClient do
       expect(body["gzipped"]).to be true
     end
   end
+
+  describe "before_request callback" do
+    it "calls before_request with uri and request" do
+      captured = nil
+      tracking_client = described_class.new(
+        timeout: 5, max_retries: 0,
+        before_request: ->(uri, req) { captured = [uri.to_s, req.path] }
+      )
+      begin
+        tracking_client.get("https://httpbin.org/get")
+      rescue StandardError
+        nil
+      end
+      expect(captured).not_to be_nil
+      tracking_client.shutdown
+    end
+  end
+
+  describe "on_request callback with retry count" do
+    it "passes the retry count to the callback" do
+      captured = nil
+      tracking_client = described_class.new(
+        timeout: 5, max_retries: 0,
+        on_request: ->(_uri, _elapsed, _status, retries) { captured = retries }
+      )
+      tracking_client.get("https://httpbin.org/get")
+      expect(captured).to eq(0)
+      tracking_client.shutdown
+    end
+  end
 end

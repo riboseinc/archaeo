@@ -396,6 +396,63 @@ RSpec.describe Archaeo::CdxApi do
     end
   end
 
+  describe "#unique_snapshots" do
+    it "collapses by digest" do
+      fake = FakeHttpClient.new([cdx_json_response(sample_rows)])
+      api = described_class.new(client: fake)
+
+      api.unique_snapshots("example.com").to_a
+      url = fake.last_url
+      expect(url).to include("collapse0=digest")
+    end
+
+    it "passes resolve_revisits by default" do
+      fake = FakeHttpClient.new([cdx_json_response(sample_rows)])
+      api = described_class.new(client: fake)
+
+      api.unique_snapshots("example.com").to_a
+      url = fake.last_url
+      expect(url).to include("resolveRevisits=true")
+    end
+  end
+
+  describe "#timeline" do
+    it "returns a CdxTimeline" do
+      fake = FakeHttpClient.new([cdx_json_response(sample_rows)])
+      api = described_class.new(client: fake)
+
+      timeline = api.timeline("example.com")
+      expect(timeline).to be_a(Archaeo::CdxTimeline)
+    end
+
+    it "filters by status 200 by default" do
+      fake = FakeHttpClient.new([cdx_json_response(sample_rows)])
+      api = described_class.new(client: fake)
+
+      api.timeline("example.com")
+      url = fake.last_url
+      expect(url).to include("filter0=statuscode%3A200")
+    end
+
+    it "accepts a custom bucket_size" do
+      fake = FakeHttpClient.new([cdx_json_response(sample_rows)])
+      api = described_class.new(client: fake)
+
+      timeline = api.timeline("example.com", bucket_size: :year)
+      expect(timeline).to be_a(Archaeo::CdxTimeline)
+    end
+
+    it "accepts from and to parameters" do
+      fake = FakeHttpClient.new([cdx_json_response(sample_rows)])
+      api = described_class.new(client: fake)
+
+      api.timeline("example.com", from: "20220101", to: "20221231")
+      url = fake.last_url
+      expect(url).to include("from=20220101")
+      expect(url).to include("to=20221231")
+    end
+  end
+
   describe "#known_urls" do
     it "returns unique original URLs" do
       rows = [

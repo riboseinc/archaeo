@@ -57,6 +57,21 @@ end
 # Count snapshots
 cdx.count("example.com")  # => Integer
 
+# Deduplicated snapshots (collapse by digest)
+cdx.unique_snapshots("example.com").each do |snap|
+  puts snap.timestamp
+end
+
+# Timeline analysis (time-bucketed frequency)
+timeline = cdx.timeline("example.com",
+                        from: "20220101", to: "20221231",
+                        bucket_size: :month)
+timeline.to_h     # => { "202201" => 5, "202202" => 3, ... }
+timeline.peak     # => ["202201", 5]
+timeline.total    # => 42
+timeline.span     # => ["202201", "202212"]
+timeline.size     # => 12 (number of buckets)
+
 # Filter by status code, mimetype, or URL pattern
 cdx.snapshots("example.com",
   filters: [Archaeo::CdxFilter.by_status(200)],
@@ -102,6 +117,10 @@ result.to_h         # => Hash representation
 result.as_json      # => JSON-serializable Hash
 
 api.available?("example.com")  # => true/false
+
+# Batch availability check
+results = api.batch_available?(%w[example.com other.com])
+# => { "example.com" => AvailabilityResult, ... }
 ----
 
 === Save a URL (SavePageNow)
@@ -114,8 +133,14 @@ result.url          # => "https://example.com/"
 result.archive_url  # => "https://web.archive.org/web/..."
 result.timestamp    # => Archaeo::Timestamp
 result.cached?      # => true if already archived
+result.success?     # => true if archive_url is present
 result.to_h         # => Hash representation
 result.as_json      # => JSON-serializable Hash
+
+# Batch save multiple URLs
+results = save.batch_save(%w[https://a.com https://b.com],
+                          delay: 2, stop_on_error: false)
+results.each { |r| puts "#{r.url}: #{r.success?}" }
 ----
 
 === Fetch Archived Content
@@ -148,6 +173,15 @@ page = fetcher.fetch("https://example.com/",
 page = fetcher.fetch("https://example.com/",
                      timestamp: "20220615000000",
                      snapshot: snap)
+
+# Raise on error status (raises FetchError with page attached)
+page = fetcher.fetch!("https://example.com/",
+                      timestamp: "20220615000000")
+# FetchError includes: .status_code, .url, .page
+
+# Page links and meta extraction
+page.links      # => [{ href: "...", text: "...", external: true/false }]
+page.meta_tags  # => { "description" => "...", "og:title" => "...", "canonical" => "..." }
 ----
 
 === Fetch Page with Assets
@@ -186,6 +220,13 @@ restored = Archaeo::AssetList.from_json(json_string)
 
 # Safe type access
 bundle.assets.urls_by_type(:image)  # works for any type key
+
+# Domain analysis
+bundle.assets.domain_counts
+# => { "cdn.example.com" => 3, "fonts.googleapis.com" => 1 }
+
+# Filter downloadable assets (excludes data: and fragment URLs)
+downloadable = bundle.assets.downloadable
 ----
 
 === Bulk Download with Resume
@@ -200,6 +241,7 @@ end
 summary.total          # => total snapshots found
 summary.downloaded     # => successfully downloaded
 summary.skipped        # => skipped (already downloaded with resume)
+summary.failed         # => failed downloads
 summary.bytes_written  # => total bytes written
 summary.elapsed        # => seconds elapsed
 
@@ -236,6 +278,10 @@ entry = state.entry_for("20220615000000")
 
 # Total bytes downloaded
 state.total_bytes  # => Integer
+
+# List all completed timestamps
+state.size        # => number of completed entries
+state.timestamps  # => ["20220101000000", "20220102000000"]
 
 # Clear state for a fresh download
 state.clear
@@ -279,6 +325,14 @@ Archaeo::CdxFilter.by_mimetype_prefix("image")  # => matches image/*
 # Convenience factories
 Archaeo::CdxFilter.only_html            # => text/html only
 Archaeo::CdxFilter.excluding_redirects  # => excludes 3xx statuses
+
+# Introspection
+filter = Archaeo::CdxFilter.by_status(200)
+filter.field    # => "statuscode"
+filter.pattern  # => "200"
+filter.matches?("200")  # => true
+filter.matches?("404")  # => false
+filter.negated?         # => false
 ----
 
 === URL Rewriting
@@ -298,6 +352,7 @@ rewriter.rewrite("https://web.archive.org/web/20220615000000/style.css")
 rewriter.rewrite_batch(["url1", "url2"])
 
 # Rewrite URLs within HTML (src, href, srcset, data-src, poster)
+# Also rewrites inline style url() and <style> element url()
 rewritten_html = rewriter.rewrite_html(html_content)
 ----
 
@@ -318,6 +373,10 @@ snap.error?         # => true for 4xx/5xx
 snap.age            # => seconds since capture
 snap.older_than?(3600)  # => true if older than 1 hour
 snap.newer_than?(3600)  # => true if newer than 1 hour
+
+# Content comparison (by digest)
+snap1.same_content_as?(snap2)  # => true if same digest
+snap1.duplicate_of?(snap2)     # => true if same digest AND different timestamp
 
 # Identity URL (raw content, no Wayback rewriting)
 snap.identity_url
@@ -370,6 +429,18 @@ ts1 < ts2   # => true/false
 
 # Immutable -- frozen on creation
 ts.frozen?  # => true
+
+# Date/time helpers
+ts.quarter         # => 1..4
+ts.wday            # => 0..6 (Sunday = 0)
+ts.human_readable  # => "2022-06-15 00:00:00 UTC"
+ts.to_date         # => Date object
+
+# Date ranges for coverage analysis
+range = ts.date_range(:month)
+# => Timestamp(Jun 1)..Timestamp(Jun 30 23:59:59)
+ts.date_range(:day)   # => single day range
+ts.date_range(:year)  # => full year range
 ----
 
 === HTTP Client Observability
@@ -380,6 +451,13 @@ ts.frozen?  # => true
 client = Archaeo::HttpClient.new(
   on_request: ->(uri, elapsed, status, retries) {
     puts "#{status} #{uri} (#{elapsed.round(3)}s, #{retries} retries)"
+  },
+)
+
+# Intercept requests before they are sent
+client = Archaeo::HttpClient.new(
+  before_request: ->(uri, request) {
+    request["X-Custom-Header"] = "value"
   },
 )
 
@@ -401,6 +479,7 @@ archaeo --version
 archaeo snapshots example.com
 archaeo snapshots --format json example.com
 archaeo snapshots --format csv --from 20220101 --to 20221231 example.com
+archaeo snapshots --filter-status 200 --filter-type text/html example.com
 
 # Find closest snapshot
 archaeo near example.com 20220101
@@ -439,6 +518,18 @@ archaeo fetch --identity https://example.com/ 20220615120000
 # Fetch a page and list its extracted assets
 archaeo fetch-assets https://example.com/ 20220615120000
 archaeo fetch-assets --format json https://example.com/ 20220615120000
+
+# Rewrite archive URLs to local paths
+archaeo rewrite https://example.com/ 20220615120000
+archaeo rewrite --output page.html --prefix local https://example.com/ 20220615120000
+
+# Compare assets between two snapshots
+archaeo diff https://example.com/ 20220101 20220615
+archaeo diff --format json https://example.com/ 20220101 20220615
+
+# Audit assets for an archived page
+archaeo asset-audit https://example.com/ 20220615120000
+archaeo asset-audit --format json https://example.com/ 20220615120000
 
 # Download all snapshots
 archaeo download example.com --output ./archive
@@ -480,6 +571,9 @@ Archaeo::SaveFailed
 
 # Content digest mismatch
 Archaeo::IntegrityError
+
+# HTTP error during fetch (includes .page, .url, .status_code)
+Archaeo::FetchError
 ----
 
 == Architecture
@@ -491,7 +585,7 @@ Archaeo follows a model-driven, OOP design:
 | Layer | Classes | Purpose
 
 | *Models*
-| `Timestamp`, `ArchiveUrl`, `Snapshot`, `Page`, `PageBundle`, `SaveResult`, `AvailabilityResult`
+| `Timestamp`, `ArchiveUrl`, `Snapshot`, `Page`, `PageBundle`, `SaveResult`, `AvailabilityResult`, `CdxTimeline`
 | Domain value objects with `to_h`, `as_json`, `inspect` support
 
 | *URL Processing*

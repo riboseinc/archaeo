@@ -63,12 +63,14 @@ module Archaeo
                    max_retries: DEFAULT_MAX_RETRIES,
                    retry_delay: DEFAULT_RETRY_DELAY,
                    user_agent: nil,
-                   on_request: nil)
+                   on_request: nil,
+                   before_request: nil)
       @timeout = timeout
       @max_retries = max_retries
       @retry_delay = retry_delay
       @user_agent = user_agent
       @on_request = on_request
+      @before_request = before_request
       @connections = {}
       @last_used = {}
       @mutex = Mutex.new
@@ -203,7 +205,7 @@ module Archaeo
     def attempt_with_retries(uri, headers, request_class)
       retries = 0
       begin
-        execute_and_check(uri, headers, request_class)
+        execute_and_check(uri, headers, request_class, retries)
       rescue RetriableStatusError => e
         retry_status(e, retries += 1) && retry
       rescue *TRANSIENT_ERRORS => e
@@ -223,8 +225,9 @@ module Archaeo
       sleep(@retry_delay * retries)
     end
 
-    def execute_and_check(uri, headers, request_class)
-      response = execute_with_connection(uri, headers, request_class)
+    def execute_and_check(uri, headers, request_class, retry_count)
+      response = execute_with_connection(uri, headers, request_class,
+                                         retry_count)
       if RETRIABLE_STATUSES.include?(response.status)
         raise RetriableStatusError, response
       end
@@ -255,9 +258,9 @@ module Archaeo
             "Failed after #{retries} retries: #{error.message}"
     end
 
-    def execute_with_connection(uri, headers, request_class)
+    def execute_with_connection(uri, headers, request_class, retry_count)
       request = build_request(uri, headers, request_class)
-      execute_tracked_request(uri, request)
+      execute_tracked_request(uri, request, retry_count)
     rescue *TRANSIENT_ERRORS
       raise
     rescue StandardError
@@ -268,16 +271,17 @@ module Archaeo
     def build_request(uri, headers, request_class)
       request = request_class.new(uri)
       headers.each { |k, v| request[k] = v }
+      @before_request&.call(uri, request)
       request
     end
 
-    def execute_tracked_request(uri, request)
+    def execute_tracked_request(uri, request, retry_count)
       http = connection_for(uri)
       start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       raw = http.request(request)
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
       response = build_response(raw)
-      @on_request&.call(uri, elapsed, response.status, 0)
+      @on_request&.call(uri, elapsed, response.status, retry_count)
       response
     end
 
@@ -286,7 +290,7 @@ module Archaeo
         "User-Agent" => select_user_agent,
         "Accept" => "text/html,application/xhtml+xml," \
                     "application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Encoding" => "gzip",
+        "Accept-Encoding" => "gzip, deflate",
         "Accept-Language" => "en-US,en;q=0.9",
         "Connection" => "keep-alive",
       }
@@ -303,10 +307,17 @@ module Archaeo
 
     def decompress_body(raw)
       body = raw.body.to_s
-      return body unless raw["content-encoding"] == "gzip" && !body.empty?
+      return body if body.empty?
 
-      Zlib::GzipReader.new(StringIO.new(body)).read
-    rescue Zlib::GzipFile::Error
+      case raw["content-encoding"]
+      when "gzip"
+        Zlib::GzipReader.new(StringIO.new(body)).read
+      when "deflate"
+        Zlib::Inflate.inflate(body)
+      else
+        body
+      end
+    rescue Zlib::GzipFile::Error, Zlib::DataError
       body
     end
   end

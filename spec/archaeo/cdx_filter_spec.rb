@@ -132,4 +132,43 @@ RSpec.describe Archaeo::CdxFilter do
       expect(filters.map(&:to_s)).to all(start_with("!statuscode:"))
     end
   end
+
+  describe "#pattern" do
+    it "extracts the regex pattern" do
+      expect(described_class.new("statuscode:200").pattern).to eq("200")
+    end
+
+    it "extracts pattern from negated filters" do
+      expect(described_class.new("!mimetype:text/html").pattern)
+        .to eq("text/html")
+    end
+
+    it "handles complex regex patterns" do
+      expect(described_class.new("mimetype:text/.*").pattern).to eq("text/.*")
+    end
+  end
+
+  describe "#matches?" do
+    it "returns true when the pattern matches" do
+      filter = described_class.new("statuscode:200")
+      expect(filter.matches?("200")).to be true
+    end
+
+    it "returns false when the pattern does not match" do
+      filter = described_class.new("statuscode:200")
+      expect(filter.matches?("404")).to be false
+    end
+
+    it "inverts match for negated filters" do
+      filter = described_class.new("!statuscode:200")
+      expect(filter.matches?("200")).to be false
+      expect(filter.matches?("404")).to be true
+    end
+
+    it "matches regex patterns" do
+      filter = described_class.new("mimetype:text/.*")
+      expect(filter.matches?("text/html")).to be true
+      expect(filter.matches?("application/json")).to be false
+    end
+  end
 end
