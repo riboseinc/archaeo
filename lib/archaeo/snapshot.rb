@@ -70,6 +70,18 @@ module Archaeo
       age <= seconds
     end
 
+    def same_content_as?(other)
+      return false unless other.is_a?(self.class)
+      return false if digest.nil? || digest.empty?
+      return false if other.digest.nil? || other.digest.empty?
+
+      digest == other.digest
+    end
+
+    def duplicate_of?(other)
+      same_content_as?(other) && timestamp != other.timestamp
+    end
+
     def fetch(client: HttpClient.new, identity: false)
       Fetcher.new(client: client).fetch(
         original_url, timestamp: @timestamp, identity: identity

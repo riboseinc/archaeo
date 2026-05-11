@@ -100,6 +100,18 @@ RSpec.describe Archaeo::AssetExtractor do
       expect(list.fonts).to include("/font.woff2")
       expect(list.media).to include("/intro.mp4")
     end
+
+    it "extracts object data attributes" do
+      html = '<html><body><object data="/flash.swf"></object></body></html>'
+      list = described_class.new(html).extract
+      expect(list.media).to include("/flash.swf")
+    end
+
+    it "extracts track sources" do
+      html = '<html><body><video><track src="/captions.vtt"></video></body></html>'
+      list = described_class.new(html).extract
+      expect(list.media).to include("/captions.vtt")
+    end
   end
 
   describe "favicon extraction" do

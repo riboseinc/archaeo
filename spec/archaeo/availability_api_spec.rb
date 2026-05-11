@@ -154,4 +154,20 @@ RSpec.describe Archaeo::AvailabilityApi do
         .to raise_error(Archaeo::RateLimitError, /rate limited/)
     end
   end
+
+  describe "#batch_available?" do
+    it "checks availability for multiple URLs" do
+      @responses = [
+        availability_response(url: "https://a.com/",
+                              timestamp: "20220101000000"),
+        availability_response(url: "https://b.com/",
+                              timestamp: "20220201000000"),
+      ]
+      results = api.batch_available?(%w[a.com b.com])
+      expect(results).to be_a(Hash)
+      expect(results.size).to eq(2)
+      expect(results["a.com"]).to be_available
+      expect(results["b.com"]).to be_available
+    end
+  end
 end

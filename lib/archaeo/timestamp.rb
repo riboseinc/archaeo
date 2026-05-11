@@ -140,8 +140,54 @@ module Archaeo
       [year, month, day, hour, minute, second]
     end
 
+    def quarter
+      ((month - 1) / 3) + 1
+    end
+
+    def wday
+      @to_time.wday
+    end
+
+    def human_readable
+      @to_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+    end
+
+    def date_range(granularity = :day)
+      start_ts = range_start(granularity)
+      end_ts = range_end(start_ts, granularity)
+      start_ts..end_ts
+    end
+
     def inspect
       "#<#{self.class.name} #{self}>"
+    end
+
+    private
+
+    def range_start(granularity)
+      case granularity
+      when :month then self.class.new(year: year, month: month)
+      when :year then self.class.new(year: year)
+      else self.class.new(year: year, month: month, day: day)
+      end
+    end
+
+    def range_end(start_ts, granularity)
+      case granularity
+      when :month then next_month_start - 1
+      when :year
+        self.class.new(year: year, month: 12, day: 31,
+                       hour: 23, minute: 59, second: 59)
+      else start_ts + 86_399
+      end
+    end
+
+    def next_month_start
+      if month == 12
+        self.class.new(year: year + 1, month: 1)
+      else
+        self.class.new(year: year, month: month + 1)
+      end
     end
   end
 end

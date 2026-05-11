@@ -17,36 +17,49 @@ module Archaeo
     def initialize(output_dir)
       @output_dir = output_dir
       @path = File.join(output_dir, STATE_FILE)
+      @mutex = Mutex.new
     end
 
     def completed?(timestamp)
-      entries_key.include?(timestamp.to_s)
+      @mutex.synchronize { entries_key.include?(timestamp.to_s) }
     end
 
     def mark_completed(timestamp, url: nil, bytes: nil)
-      ts = timestamp.to_s
-      return if entries_key.include?(ts)
+      @mutex.synchronize do
+        ts = timestamp.to_s
+        return if entries_key.include?(ts)
 
-      entry = { "ts" => ts, "at" => Time.now.utc.iso8601 }
-      entry["url"] = url if url
-      entry["bytes"] = bytes if bytes
-      entries << entry
-      @entries_key = nil
-      save
+        entry = { "ts" => ts, "at" => Time.now.utc.iso8601 }
+        entry["url"] = url if url
+        entry["bytes"] = bytes if bytes
+        entries << entry
+        @entries_key = nil
+        save
+      end
     end
 
     def entry_for(timestamp)
-      entries.find { |e| e["ts"] == timestamp.to_s }
+      @mutex.synchronize { entries.find { |e| e["ts"] == timestamp.to_s } }
     end
 
     def total_bytes
-      entries.sum { |e| e["bytes"].to_i }
+      @mutex.synchronize { entries.sum { |e| e["bytes"].to_i } }
+    end
+
+    def size
+      @mutex.synchronize { entries.size }
+    end
+
+    def timestamps
+      @mutex.synchronize { entries.map { |e| e["ts"] } }
     end
 
     def clear
-      @entries = []
-      @entries_key = nil
-      FileUtils.rm_f(@path)
+      @mutex.synchronize do
+        @entries = []
+        @entries_key = nil
+        FileUtils.rm_f(@path)
+      end
     end
 
     private

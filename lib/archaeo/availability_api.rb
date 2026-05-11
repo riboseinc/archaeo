@@ -38,6 +38,16 @@ module Archaeo
       near(url).available?
     end
 
+    def batch_available?(urls, concurrency: 1)
+      if concurrency <= 1
+        urls.to_h do |u|
+          [u, near(u)]
+        end
+      else
+        batch_concurrent(urls, concurrency)
+      end
+    end
+
     private
 
     def parse_response(response, url)
@@ -77,6 +87,27 @@ module Archaeo
         timestamp: ts,
         archived_status: archived_status,
       )
+    end
+
+    def batch_concurrent(urls, concurrency)
+      results = {}
+      mutex = Mutex.new
+      queue = urls.dup
+      threads = Array.new(concurrency) do
+        Thread.new { drain_queue(queue, results, mutex) }
+      end
+      threads.each(&:join)
+      results
+    end
+
+    def drain_queue(queue, results, mutex)
+      loop do
+        url = mutex.synchronize { queue.shift }
+        break unless url
+
+        result = near(url)
+        mutex.synchronize { results[url] = result }
+      end
     end
   end
 end

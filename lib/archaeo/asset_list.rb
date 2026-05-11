@@ -102,5 +102,28 @@ module Archaeo
       end
       list
     end
+
+    def domain_counts
+      all.each_with_object(Hash.new(0)) do |url, counts|
+        host = begin
+          URI.parse(url).host
+        rescue URI::InvalidURIError
+          "(invalid)"
+        end
+        counts[host || "(relative)"] += 1
+      end
+    end
+
+    def downloadable
+      filtered = self.class.new
+      CATEGORIES.each do |type|
+        @urls_by_type[type].each do |url|
+          next if url.start_with?("data:", "#")
+
+          filtered.add(url, type: type)
+        end
+      end
+      filtered
+    end
   end
 end

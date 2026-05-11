@@ -110,6 +110,24 @@ module Archaeo
       snapshots(url, **options).count
     end
 
+    def unique_snapshots(url, resolve_revisits: true, **options)
+      snapshots(url,
+                collapse: ["digest"],
+                resolve_revisits: resolve_revisits,
+                **options)
+    end
+
+    def timeline(url, from: nil, to: nil,
+                 bucket_size: :month, status: 200)
+      options = {}
+      options[:from] = Timestamp.coerce(from).to_s if from
+      options[:to] = Timestamp.coerce(to).to_s if to
+      options[:filters] = [CdxFilter.by_status(status)] if status
+
+      snaps = snapshots(url, **options).to_a
+      CdxTimeline.new(snaps, bucket_size: bucket_size)
+    end
+
     # Returns the number of pages for a paginated query.
     def num_pages(url, **options)
       url = UrlNormalizer.normalize(url)

@@ -239,4 +239,68 @@ RSpec.describe Archaeo::Snapshot do
       expect(snapshot.inspect).to include("status=200")
     end
   end
+
+  describe "#same_content_as?" do
+    it "returns true when digests match" do
+      other = described_class.new(
+        urlkey: "com,example)/index", timestamp: "20210601120000",
+        original_url: "https://example.com/index", digest: "SHA1-abc123"
+      )
+      expect(snapshot.same_content_as?(other)).to be true
+    end
+
+    it "returns false when digests differ" do
+      other = described_class.new(
+        urlkey: "com,example)/", timestamp: "20210601120000",
+        original_url: "https://example.com/", digest: "SHA1-other"
+      )
+      expect(snapshot.same_content_as?(other)).to be false
+    end
+
+    it "returns false when other is not a Snapshot" do
+      expect(snapshot.same_content_as?("not a snapshot")).to be false
+    end
+
+    it "returns false when self has no digest" do
+      no_digest = described_class.new(
+        urlkey: "com,example)/", timestamp: "20220113130051",
+        original_url: "https://example.com/"
+      )
+      expect(no_digest.same_content_as?(snapshot)).to be false
+    end
+
+    it "returns false when other has no digest" do
+      no_digest = described_class.new(
+        urlkey: "com,example)/", timestamp: "20210601120000",
+        original_url: "https://example.com/"
+      )
+      expect(snapshot.same_content_as?(no_digest)).to be false
+    end
+  end
+
+  describe "#duplicate_of?" do
+    it "returns true when same digest but different timestamp" do
+      other = described_class.new(
+        urlkey: "com,example)/", timestamp: "20210601120000",
+        original_url: "https://example.com/", digest: "SHA1-abc123"
+      )
+      expect(snapshot.duplicate_of?(other)).to be true
+    end
+
+    it "returns false when same digest and same timestamp" do
+      same = described_class.new(
+        urlkey: "com,example)/", timestamp: "20220113130051",
+        original_url: "https://example.com/", digest: "SHA1-abc123"
+      )
+      expect(snapshot.duplicate_of?(same)).to be false
+    end
+
+    it "returns false when different digest" do
+      other = described_class.new(
+        urlkey: "com,example)/", timestamp: "20210601120000",
+        original_url: "https://example.com/", digest: "SHA1-other"
+      )
+      expect(snapshot.duplicate_of?(other)).to be false
+    end
+  end
 end

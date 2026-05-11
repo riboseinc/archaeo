@@ -56,5 +56,16 @@ module Archaeo
     def inspect
       "#<#{self.class.name} #{@url} available=#{@available}>"
     end
+
+    def to_snapshot
+      return nil unless available?
+
+      Snapshot.new(
+        urlkey: UrlNormalizer.normalize(url).downcase,
+        timestamp: timestamp,
+        original_url: url,
+        status_code: archived_status || 200,
+      )
+    end
   end
 end

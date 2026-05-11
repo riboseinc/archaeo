@@ -15,11 +15,12 @@ module Archaeo
   # for interrupted download recovery.
   class BulkDownloader
     def initialize(client: HttpClient.new, output_dir: "archive",
-                   cdx_api: nil, concurrency: 1)
+                   cdx_api: nil, concurrency: 1, on_error: nil)
       @client = client
       @output_dir = output_dir
       @cdx_api = cdx_api
       @concurrency = [1, concurrency.to_i].max
+      @on_error = on_error
     end
 
     def download(url, from: nil, to: nil, resume: false,
@@ -29,10 +30,11 @@ module Archaeo
       FileUtils.mkdir_p(@output_dir) unless dry_run
 
       snapshots = fetch_snapshots(url, from: from, to: to)
-      downloaded, skipped, bytes =
+      downloaded, skipped, bytes, failed =
         run_download(snapshots, resume, dry_run, block)
 
-      build_summary(start_time, snapshots.size, downloaded, skipped, bytes)
+      build_summary(start_time, snapshots.size, downloaded,
+                    skipped, bytes, failed: failed)
     end
 
     private
@@ -59,24 +61,26 @@ module Archaeo
       end
     end
 
-    def build_summary(start_time, total, downloaded, skipped, bytes)
+    def build_summary(start_time, total, downloaded, skipped,
+                      bytes, failed: 0)
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
       DownloadSummary.new(
         total: total, downloaded: downloaded, skipped: skipped,
-        failed: 0, bytes_written: bytes, elapsed: elapsed
+        failed: failed, bytes_written: bytes, elapsed: elapsed
       )
     end
 
     def download_sequential(snapshots, total, state, resume,
                             dry_run, progress)
-      counters = { downloaded: 0, skipped: 0, bytes: 0 }
+      counters = { downloaded: 0, skipped: 0, bytes: 0, failed: 0 }
 
       snapshots.each_with_index do |snap, index|
         process_sequential(snap, state, resume, dry_run, counters)
         progress&.call(index + 1, total, snap)
       end
 
-      [counters[:downloaded], counters[:skipped], counters[:bytes]]
+      [counters[:downloaded], counters[:skipped],
+       counters[:bytes], counters[:failed]]
     end
 
     def process_sequential(snap, state, resume, dry_run, counters)
@@ -87,6 +91,9 @@ module Archaeo
 
       counters[:bytes] += download_snapshot(snap, state) unless dry_run
       counters[:downloaded] += 1
+    rescue StandardError => e
+      counters[:failed] += 1
+      @on_error&.call(snap, e)
     end
 
     def download_snapshot(snap, state)
@@ -100,7 +107,7 @@ module Archaeo
                             dry_run, progress)
       queue = snapshots.each_with_index.to_a
       shared = { mutex: Mutex.new, errors: [],
-                 downloaded: 0, skipped: 0, bytes: 0 }
+                 downloaded: 0, skipped: 0, bytes: 0, failed: 0 }
 
       threads = Array.new(@concurrency) do
         Thread.new do
@@ -109,17 +116,9 @@ module Archaeo
         end
       end
       threads.each(&:join)
-      raise_on_errors(shared[:errors])
 
-      [shared[:downloaded], shared[:skipped], shared[:bytes]]
-    end
-
-    def raise_on_errors(errors)
-      return unless errors.any?
-
-      raise Error,
-            "#{errors.size} download(s) failed: " \
-            "#{errors.map { |s, _| s.timestamp }.join(', ')}"
+      [shared[:downloaded], shared[:skipped],
+       shared[:bytes], shared[:failed]]
     end
 
     def process_queue(queue, total, state, resume, dry_run,
@@ -133,7 +132,7 @@ module Archaeo
           next
         end
 
-        concurrent_fetch(snap, state, dry_run, shared)
+        concurrent_fetch(snap, dry_run, shared)
         progress&.call(index + 1, total, snap)
       end
     end
@@ -145,35 +144,59 @@ module Archaeo
       true
     end
 
-    def concurrent_fetch(snap, state, dry_run, shared)
+    def concurrent_fetch(snap, dry_run, shared)
       unless dry_run
         content = fetch_and_save(snap)
-        shared[:mutex].synchronize do
-          state.mark_completed(snap.timestamp,
-                               url: snap.original_url,
-                               bytes: content.bytesize)
-          shared[:bytes] += content.bytesize
-        end
+        record_completed(snap, content, shared)
       end
       shared[:mutex].synchronize { shared[:downloaded] += 1 }
     rescue StandardError => e
-      shared[:mutex].synchronize { shared[:errors] << [snap, e] }
+      shared[:mutex].synchronize do
+        shared[:failed] += 1
+        shared[:errors] << [snap, e]
+      end
+      @on_error&.call(snap, e)
+    end
+
+    def record_completed(snap, content, shared)
+      shared[:mutex].synchronize do
+        state.mark_completed(snap.timestamp,
+                             url: snap.original_url,
+                             bytes: content.bytesize)
+        shared[:bytes] += content.bytesize
+      end
     end
 
     def fetch_and_save(snapshot)
-      fetcher = Fetcher.new(client: @client)
-      page = fetcher.fetch(snapshot.original_url,
-                           timestamp: snapshot.timestamp)
+      page = fetch_page(snapshot)
+      validate_page_status(page, snapshot)
+      write_page_file(page, snapshot)
+    rescue StandardError
+      FileUtils.rm_f(tmp_path) if defined?(tmp_path)
+      raise
+    end
 
+    def fetch_page(snapshot)
+      Fetcher.new(client: @client).fetch(
+        snapshot.original_url, timestamp: snapshot.timestamp
+      )
+    end
+
+    def validate_page_status(page, snapshot)
+      return if page.status_code.between?(200, 299)
+
+      raise Error,
+            "HTTP #{page.status_code} for " \
+            "#{snapshot.original_url} at #{snapshot.timestamp}"
+    end
+
+    def write_page_file(page, snapshot)
       filename = build_filename(snapshot)
       FileUtils.mkdir_p(File.dirname(filename))
       tmp_path = "#{filename}.tmp"
       File.binwrite(tmp_path, page.content)
       File.rename(tmp_path, filename)
       page.content
-    rescue StandardError
-      FileUtils.rm_f(tmp_path) if defined?(tmp_path)
-      raise
     end
 
     EXTENSION_MAP = {

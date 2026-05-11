@@ -112,4 +112,49 @@ RSpec.describe Archaeo::SaveApi do
       expect(result).to be_cached
     end
   end
+
+  describe "#batch_save" do
+    it "saves multiple URLs" do
+      @responses = [
+        save_response(
+          headers: {
+            "content-location" =>
+              "/web/20220615120000/https://a.com/",
+          },
+        ),
+        save_response(
+          headers: {
+            "content-location" =>
+              "/web/20220615120001/https://b.com/",
+          },
+        ),
+      ]
+      slow_api = described_class.new(client: fake_client, max_tries: 1)
+
+      results = slow_api.batch_save(%w[https://a.com https://b.com], delay: 0)
+      expect(results.size).to eq(2)
+      expect(results).to all(be_a(Archaeo::SaveResult))
+    end
+
+    it "continues on error when stop_on_error is false" do
+      good_response = save_response(
+        headers: {
+          "content-location" =>
+            "/web/20220615120000/https://a.com/",
+        },
+      )
+      @responses = [
+        save_response(status: 429),
+        good_response,
+      ]
+      slow_api = described_class.new(client: fake_client, max_tries: 1)
+
+      results = slow_api.batch_save(
+        %w[https://fail.com https://a.com], delay: 0, stop_on_error: false
+      )
+      expect(results.size).to eq(2)
+      expect(results[0].archive_url).to be_nil
+      expect(results[1]).to be_success
+    end
+  end
 end

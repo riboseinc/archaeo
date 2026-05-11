@@ -31,6 +31,17 @@ module Archaeo
       stripped.split(":", 2).first.to_s
     end
 
+    def pattern
+      stripped = @expression.delete_prefix("!")
+      stripped.split(":", 2).last.to_s
+    end
+
+    def matches?(value)
+      regex = Regexp.new(pattern)
+      result = regex.match?(value.to_s)
+      negated? ? !result : result
+    end
+
     def self.by_status(code)
       new("statuscode:#{code}")
     end

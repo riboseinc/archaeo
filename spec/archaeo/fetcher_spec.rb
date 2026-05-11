@@ -173,6 +173,44 @@ RSpec.describe Archaeo::Fetcher do
     end
   end
 
+  describe "#fetch!" do
+    context "with a successful response" do
+      before do
+        @responses = [
+          FakeHttpClient.response(
+            status: 200,
+            headers: { "content-type" => "text/html" },
+            body: "<html>ok</html>",
+          ),
+        ]
+      end
+
+      it "returns a Page on success" do
+        result = fetcher.fetch!("https://example.com/", timestamp: timestamp)
+        expect(result).to be_a(Archaeo::Page)
+        expect(result.status_code).to eq(200)
+      end
+    end
+
+    context "with an error response" do
+      before do
+        @responses = [
+          FakeHttpClient.response(status: 404, body: "Not Found"),
+        ]
+      end
+
+      it "raises FetchError with status_code, url, and page" do
+        expect do
+          fetcher.fetch!("https://example.com/missing", timestamp: timestamp)
+        end.to raise_error(Archaeo::FetchError) do |error|
+          expect(error.status_code).to eq(404)
+          expect(error.url).to eq("https://example.com/missing")
+          expect(error.page).to be_a(Archaeo::Page)
+        end
+      end
+    end
+  end
+
   describe "#fetch_page_with_assets" do
     context "with a page containing assets" do
       before do

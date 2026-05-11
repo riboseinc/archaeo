@@ -67,6 +67,32 @@ module Archaeo
       end
     end
 
+    def links
+      return [] unless html?
+
+      @links ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        base = @archive_url || @original_url
+        doc.css("a[href]").map do |anchor|
+          href = resolve_page_url(anchor["href"], base)
+          { href: href, text: anchor.text.strip,
+            external: href && !href.include?(original_domain) }
+        end
+      end
+    end
+
+    def meta_tags
+      return {} unless html?
+
+      @meta_tags ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        result = extract_meta_entries(doc)
+        canonical = doc.at_css('link[rel="canonical"]')
+        result["canonical"] = canonical["href"].to_s if canonical
+        result
+      end
+    end
+
     def to_h
       {
         content_type: @content_type,
@@ -145,6 +171,36 @@ module Archaeo
         .encode("UTF-8",
                 invalid: :replace, undef: :replace,
                 replace: "?")
+    end
+
+    def original_domain
+      @original_domain ||= begin
+        URI.parse(@original_url).host
+      rescue URI::InvalidURIError
+        nil
+      end
+    end
+
+    def extract_meta_entries(doc)
+      result = {}
+      doc.css("meta[name], meta[property], meta[http-equiv]").each do |meta|
+        key = meta["name"] || meta["property"] || meta["http-equiv"]
+        next unless key
+
+        result[key.downcase] = meta["content"].to_s
+      end
+      result
+    end
+
+    def resolve_page_url(href, base)
+      return href unless href
+      return href if href.start_with?("http", "//", "data:", "#",
+                                      "javascript:")
+      return nil unless base
+
+      URI.join(base, href).to_s
+    rescue URI::InvalidURIError
+      nil
     end
   end
 end

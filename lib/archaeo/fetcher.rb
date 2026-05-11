@@ -25,6 +25,19 @@ module Archaeo
       build_page(response, archive_url.to_s, url, ts)
     end
 
+    def fetch!(url, timestamp:, identity: false, snapshot: nil)
+      page = fetch(url, timestamp: timestamp, identity: identity,
+                        snapshot: snapshot)
+      return page if page.status_code.between?(200, 299)
+
+      raise FetchError.new(
+        "HTTP #{page.status_code} for #{page.original_url}",
+        status_code: page.status_code,
+        url: page.original_url,
+        page: page,
+      )
+    end
+
     def fetch_page_with_assets(url, timestamp:)
       page = fetch(url, timestamp: timestamp)
       assets = AssetExtractor.new(page.content,

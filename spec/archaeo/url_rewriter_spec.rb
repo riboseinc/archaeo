@@ -65,5 +65,29 @@ RSpec.describe Archaeo::UrlRewriter do
       expect(result).to include("local/small.png 300w")
       expect(result).to include("local/large.png 600w")
     end
+
+    it "rewrites inline style url()" do
+      html = '<div style="background-image: url(' \
+             "'https://web.archive.org/web/20220615000000/bg.png')\">" \
+             "</div>"
+      result = rewriter.rewrite_html(html)
+      expect(result).to include("local/bg.png")
+      expect(result).not_to include("web.archive.org")
+    end
+
+    it "rewrites style element url()" do
+      html = "<style>body { background: url(" \
+             "'https://web.archive.org/web/20220615000000/bg.png'); }</style>"
+      result = rewriter.rewrite_html(html)
+      expect(result).to include("local/bg.png")
+    end
+
+    it "preserves non-archive inline style urls" do
+      html = '<div style="background-image: ' \
+             "url('https://cdn.example.com/bg.png')\">" \
+             "</div>"
+      result = rewriter.rewrite_html(html)
+      expect(result).to include("cdn.example.com/bg.png")
+    end
   end
 end

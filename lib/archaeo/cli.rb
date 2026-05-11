@@ -2,6 +2,7 @@
 
 require "csv"
 require "json"
+require "set"
 require "thor"
 
 module Archaeo
@@ -27,6 +28,10 @@ module Archaeo
     option :match_type,
            desc: "Match type (exact, prefix, host, domain)"
     option :filter, type: :array, desc: "CDX filter expressions"
+    option :filter_status, type: :array,
+                           desc: "Only include these status codes"
+    option :filter_type, type: :array,
+                         desc: "MIME type prefixes (e.g. image, text/html)"
     option :collapse, type: :array, desc: "CDX collapse fields"
     option :sort, desc: "Sort order (default, closest, reverse)"
     option :limit, type: :numeric, desc: "Max snapshots to return"
@@ -153,6 +158,53 @@ module Archaeo
       end
     end
 
+    desc "rewrite URL TIMESTAMP",
+         "Fetch a page and rewrite archive URLs to local paths"
+    option :prefix, desc: "Local path prefix", default: "local"
+    option :output, desc: "Write rewritten HTML to file"
+    def rewrite(url, timestamp)
+      handle_errors do
+        coerced = Timestamp.coerce(timestamp)
+        page = Fetcher.new.fetch(url, timestamp: coerced)
+        rewritten = build_rewriter(url, coerced).rewrite_html(page.content)
+        output_rewritten(rewritten)
+      end
+    end
+
+    desc "diff URL TIMESTAMP_A TIMESTAMP_B",
+         "Compare assets of two archived snapshots"
+    option :format, desc: "Output format (table, json)", default: "table"
+    def diff(url, timestamp_a, timestamp_b)
+      handle_errors do
+        bundle_a = Fetcher.new.fetch_page_with_assets(
+          url, timestamp: timestamp_a
+        )
+        bundle_b = Fetcher.new.fetch_page_with_assets(
+          url, timestamp: timestamp_b
+        )
+        output_diff(bundle_a.assets, bundle_b.assets,
+                    timestamp_a, timestamp_b)
+      end
+    end
+
+    desc "asset-audit URL TIMESTAMP",
+         "Audit assets for an archived page"
+    option :format, desc: "Output format (table, json)", default: "table"
+    def asset_audit(url, timestamp)
+      handle_errors do
+        bundle = Fetcher.new.fetch_page_with_assets(
+          url, timestamp: timestamp
+        )
+        report = build_audit_report(bundle)
+        case options[:format]
+        when "json"
+          puts JSON.generate(report)
+        else
+          print_audit_report(report)
+        end
+      end
+    end
+
     desc "download URL", "Download all archived snapshots of a URL"
     option :output, desc: "Output directory", default: "archive"
     option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
@@ -276,6 +328,30 @@ module Archaeo
       end
     end
 
+    def build_rewriter(url, timestamp)
+      normalized = UrlNormalizer.normalize(url)
+      archive_prefix = ArchiveUrl.new(normalized, timestamp: timestamp).to_s
+      UrlRewriter.new(archive_prefix, options[:prefix])
+    end
+
+    def output_rewritten(content)
+      if options[:output]
+        write_output(options[:output], content)
+      else
+        $stdout.write(content)
+      end
+    end
+
+    def output_diff(assets_a, assets_b, ts_a, ts_b)
+      comparison = compare_asset_lists(assets_a, assets_b)
+      case options[:format]
+      when "json"
+        puts JSON.generate(comparison)
+      else
+        print_diff_report(comparison, ts_a, ts_b)
+      end
+    end
+
     def output_assets(bundle)
       case options[:format]
       when "json"
@@ -307,16 +383,36 @@ module Archaeo
     def print_summary(summary)
       return if quiet?
 
-      warn "Downloaded #{summary.downloaded}/#{summary.total} " \
-           "(#{summary.bytes_written} bytes) in " \
-           "#{summary.elapsed.round(1)}s"
+      parts = ["Downloaded #{summary.downloaded}/#{summary.total}"]
+      parts << "#{summary.failed} failed" if summary.failed.positive?
+      parts << "(#{summary.bytes_written} bytes)"
+      parts << "in #{summary.elapsed.round(1)}s"
+      warn parts.join(" ")
     end
 
     def build_cdx_options(opts)
-      CDX_OPTION_MAP.each_with_object({}) do |(cli_key, api_key), result|
+      result = {}
+      CDX_OPTION_MAP.each do |cli_key, api_key|
         value = opts[cli_key]
         result[api_key] = value if value
       end
+      append_convenience_filters!(result, opts)
+      result
+    end
+
+    def append_convenience_filters!(result, opts)
+      filters = Array(result[:filters])
+      filters += status_filters(opts[:filter_status])
+      filters += type_filters(opts[:filter_type])
+      result[:filters] = filters unless filters.empty?
+    end
+
+    def status_filters(codes)
+      Array(codes).map { |code| CdxFilter.by_status(code).to_s }
+    end
+
+    def type_filters(prefixes)
+      Array(prefixes).map { |p| CdxFilter.by_mimetype_prefix(p).to_s }
     end
 
     def output_table(snaps)
@@ -346,6 +442,87 @@ module Archaeo
       FileUtils.mkdir_p(File.dirname(path))
       File.binwrite(path, content)
       warn "Written to #{path}" unless quiet?
+    end
+
+    def compare_asset_lists(assets_a, assets_b)
+      all_a = assets_a.all.to_set
+      all_b = assets_b.all.to_set
+      build_diff(all_a, all_b, assets_a.counts, assets_b.counts)
+    end
+
+    def build_diff(set_a, set_b, counts_a, counts_b)
+      {
+        only_in_a: (set_a - set_b).to_a.sort,
+        only_in_b: (set_b - set_a).to_a.sort,
+        unchanged: (set_a & set_b).to_a.sort,
+        counts_a: counts_a,
+        counts_b: counts_b,
+      }
+    end
+
+    def print_diff_report(comparison, ts_a, ts_b)
+      puts "Comparing #{ts_a} vs #{ts_b}"
+      puts
+      print_url_list("Removed:", comparison[:only_in_a], "  - ")
+      print_url_list("Added:", comparison[:only_in_b], "  + ")
+      puts "Unchanged: #{comparison[:unchanged].size}"
+    end
+
+    def print_url_list(header, urls, prefix)
+      return unless urls.any?
+
+      puts header
+      urls.each { |url| puts "#{prefix}#{url}" }
+      puts
+    end
+
+    def build_audit_report(bundle)
+      assets = bundle.assets
+      downloadable = assets.downloadable
+      {
+        page_url: bundle.page.archive_url,
+        total_assets: assets.size,
+        downloadable: downloadable.size,
+        counts: assets.counts,
+        domains: assets.domain_counts,
+        duplicates: find_duplicate_urls(assets),
+      }
+    end
+
+    def print_audit_report(report)
+      puts "Page: #{report[:page_url]}"
+      puts "Total assets: #{report[:total_assets]}"
+      puts "Downloadable: #{report[:downloadable]}"
+      puts
+      print_type_counts(report[:counts])
+      print_domain_counts(report[:domains])
+      print_url_list("Duplicates:", report[:duplicates], "  ")
+    end
+
+    def print_type_counts(counts)
+      puts "By type:"
+      counts.each { |type, count| puts "  #{type}: #{count}" }
+      puts
+    end
+
+    def print_domain_counts(domains)
+      puts "By domain:"
+      domains.sort_by { |_, v| -v }.each do |domain, count|
+        puts "  #{domain}: #{count}"
+      end
+    end
+
+    def find_duplicate_urls(assets)
+      seen = {}
+      dupes = []
+      assets.all.each do |url|
+        if seen[url]
+          dupes << url unless dupes.include?(url)
+        else
+          seen[url] = true
+        end
+      end
+      dupes
     end
   end
 end

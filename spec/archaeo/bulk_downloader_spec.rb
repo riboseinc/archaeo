@@ -152,6 +152,22 @@ RSpec.describe Archaeo::BulkDownloader do
       expect(files.length).to eq(1)
     end
 
+    it "tracks failed downloads via on_error callback" do
+      cdx_resp = cdx_response(sample_rows)
+      fetch_resp = FakeHttpClient.response(
+        status: 500, body: "Internal Server Error",
+      )
+      fake = FakeHttpClient.new([cdx_resp, fetch_resp])
+      errors = []
+      downloader = described_class.new(
+        client: fake, output_dir: tmpdir,
+        on_error: ->(snap, err) { errors << [snap, err] }
+      )
+
+      downloader.download("example.com")
+      expect(errors.length).to eq(1)
+    end
+
     it "accepts custom CdxApi via constructor" do
       single_row = [
         ["com,example)/", "20220113130051",

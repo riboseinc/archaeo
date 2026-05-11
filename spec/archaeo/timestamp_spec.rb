@@ -211,4 +211,65 @@ RSpec.describe Archaeo::Timestamp do
       expect(ts).to be_frozen
     end
   end
+
+  describe "#quarter" do
+    it "returns Q1 for January" do
+      ts = described_class.new(year: 2022, month: 1)
+      expect(ts.quarter).to eq(1)
+    end
+
+    it "returns Q2 for May" do
+      ts = described_class.new(year: 2022, month: 5)
+      expect(ts.quarter).to eq(2)
+    end
+
+    it "returns Q3 for August" do
+      ts = described_class.new(year: 2022, month: 8)
+      expect(ts.quarter).to eq(3)
+    end
+
+    it "returns Q4 for December" do
+      ts = described_class.new(year: 2022, month: 12)
+      expect(ts.quarter).to eq(4)
+    end
+  end
+
+  describe "#wday" do
+    it "returns the day of week" do
+      ts = described_class.new(year: 2022, month: 6, day: 15)
+      expect(ts.wday).to eq(Time.utc(2022, 6, 15).wday)
+    end
+  end
+
+  describe "#human_readable" do
+    it "returns a formatted human-readable string" do
+      ts = described_class.new(year: 2022, month: 6, day: 15,
+                               hour: 10, minute: 30, second: 45)
+      expect(ts.human_readable).to eq("2022-06-15 10:30:45 UTC")
+    end
+  end
+
+  describe "#date_range" do
+    let(:ts) { described_class.new(year: 2022, month: 6, day: 15) }
+
+    it "returns a day range by default" do
+      range = ts.date_range
+      expect(range.begin).to eq(ts)
+      expect(range.end).to eq(ts + 86_399)
+    end
+
+    it "returns a month range" do
+      range = ts.date_range(:month)
+      expect(range.begin).to eq(
+        described_class.new(year: 2022, month: 6),
+      )
+      expect(range.end.to_s).to eq("20220630235959")
+    end
+
+    it "returns a year range" do
+      range = ts.date_range(:year)
+      expect(range.begin).to eq(described_class.new(year: 2022))
+      expect(range.end.to_s).to eq("20221231235959")
+    end
+  end
 end
