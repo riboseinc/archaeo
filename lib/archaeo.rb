@@ -55,4 +55,9 @@ module Archaeo
   autoload :CdxCache, "archaeo/cdx_cache"
   autoload :SubdomainDiscovery, "archaeo/subdomain_discovery"
   autoload :ArchiveHealthCheck, "archaeo/archive_health_check"
+  autoload :DownloadScheduler, "archaeo/download_scheduler"
+  autoload :SnapshotDiff, "archaeo/snapshot_diff"
+  autoload :Configuration, "archaeo/configuration"
+  autoload :CoverageReport, "archaeo/coverage_report"
+  autoload :ProgressReport, "archaeo/progress_report"
 end

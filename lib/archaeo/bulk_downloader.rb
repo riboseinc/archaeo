@@ -29,7 +29,8 @@ module Archaeo
     def download(url, from: nil, to: nil, resume: false,
                  dry_run: false, all_timestamps: false,
                  filter: nil, page_requisites: false,
-                 snapshot_at: nil, &block)
+                 snapshot_at: nil, max_snapshots: nil,
+                 strategy: nil, &block)
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       url = UrlNormalizer.normalize(url)
       FileUtils.mkdir_p(@output_dir) unless dry_run
@@ -38,6 +39,8 @@ module Archaeo
                                        all_timestamps: all_timestamps,
                                        snapshot_at: snapshot_at)
       snapshots = apply_filter(snapshots, filter)
+      snapshots = schedule_snapshots(snapshots, strategy)
+      snapshots = snapshots.first(max_snapshots) if max_snapshots
       downloaded, skipped, bytes, failed =
         run_download(snapshots, resume, dry_run, page_requisites, block)
 
@@ -68,6 +71,13 @@ module Archaeo
       return snapshots unless filter
 
       snapshots.select { |snap| filter.match?(snap.original_url) }
+    end
+
+    def schedule_snapshots(snapshots, strategy)
+      return snapshots unless strategy
+
+      scheduler = DownloadScheduler.new(strategy: strategy)
+      scheduler.schedule(snapshots)
     end
 
     def run_download(snapshots, resume, dry_run, page_requisites, progress)
