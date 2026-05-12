@@ -64,13 +64,15 @@ module Archaeo
                    retry_delay: DEFAULT_RETRY_DELAY,
                    user_agent: nil,
                    on_request: nil,
-                   before_request: nil)
+                   before_request: nil,
+                   rate_limiter: nil)
       @timeout = timeout
       @max_retries = max_retries
       @retry_delay = retry_delay
       @user_agent = user_agent
       @on_request = on_request
       @before_request = before_request
+      @rate_limiter = rate_limiter
       @connections = {}
       @last_used = {}
       @mutex = Mutex.new
@@ -276,6 +278,7 @@ module Archaeo
     end
 
     def execute_tracked_request(uri, request, retry_count)
+      @rate_limiter&.wait(host: uri.host)
       http = connection_for(uri)
       start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       raw = http.request(request)

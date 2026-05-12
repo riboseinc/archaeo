@@ -102,4 +102,23 @@ RSpec.describe Archaeo::HttpClient do
       tracking_client.shutdown
     end
   end
+
+  describe "rate limiter integration" do
+    it "calls rate limiter wait before requests" do
+      limiter = Archaeo::RateLimiter.new(min_interval: 0)
+      expect(limiter).to receive(:wait).with(host: "httpbin.org")
+      rate_client = described_class.new(
+        timeout: 5, max_retries: 0, rate_limiter: limiter,
+      )
+      rate_client.get("https://httpbin.org/get")
+      rate_client.shutdown
+    end
+
+    it "works without a rate limiter" do
+      no_limiter_client = described_class.new(timeout: 5, max_retries: 0)
+      response = no_limiter_client.get("https://httpbin.org/get")
+      expect(response.status).to eq(200)
+      no_limiter_client.shutdown
+    end
+  end
 end
