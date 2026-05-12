@@ -62,6 +62,36 @@ module Archaeo
       end
     end
 
+    def file_exists?(timestamp, base_dir: @output_dir)
+      entry = entry_for(timestamp)
+      return false unless entry
+
+      file_path = find_file(base_dir, timestamp.to_s)
+      File.exist?(file_path)
+    end
+
+    def stale_entries(base_dir: @output_dir)
+      @mutex.synchronize do
+        entries.reject do |e|
+          find_file(base_dir,
+                    e["ts"]) && File.exist?(find_file(base_dir, e["ts"]))
+        end
+      end
+    end
+
+    def cleanup_stale(base_dir: @output_dir)
+      @mutex.synchronize do
+        stale = entries.reject do |e|
+          path = find_file(base_dir, e["ts"])
+          path && File.exist?(path)
+        end
+        @entries = entries - stale
+        @entries_key = nil
+        save
+        stale.size
+      end
+    end
+
     private
 
     def entries
@@ -102,6 +132,11 @@ module Archaeo
       tmp_path = "#{@path}.tmp"
       File.write(tmp_path, content)
       File.rename(tmp_path, @path)
+    end
+
+    def find_file(base_dir, timestamp)
+      pattern = File.join(base_dir, "**", "*#{timestamp}*")
+      Dir.glob(pattern).first
     end
   end
 end

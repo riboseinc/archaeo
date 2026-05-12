@@ -62,8 +62,13 @@ module Archaeo
 
       ts = Timestamp.parse(extract_timestamp(archive_url))
       cached = ts.to_time < start_time - 2700
-      SaveResult.new(url: url, archive_url: archive_url,
-                     timestamp: ts, cached: cached)
+      SaveResult.new(
+        url: url, archive_url: archive_url,
+        timestamp: ts, cached: cached,
+        status_code: response.status,
+        response_url: response.headers["location"],
+        response_headers: response.headers
+      )
     end
 
     def check_response_errors!(response, url)
