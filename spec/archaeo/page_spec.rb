@@ -279,4 +279,106 @@ RSpec.describe Archaeo::Page do
       expect(page.meta_tags).to eq({})
     end
   end
+
+  describe "content extraction" do
+    let(:complex_html) do
+      <<~HTML
+        <html><head><title>Test</title></head>
+        <body>
+          <h1>Main Title</h1>
+          <h2>Subtitle</h2>
+          <img src="photo.jpg" alt="A photo" width="800" height="600">
+          <img src="icon.png">
+          <form action="/submit" method="POST">
+            <input type="text" name="q">
+            <input type="hidden" name="csrf" value="abc">
+            <select name="color"><option>red</option></select>
+          </form>
+          <script src="app.js" type="text/javascript"></script>
+          <script>console.log('inline')</script>
+        </body></html>
+      HTML
+    end
+
+    let(:html_page) do
+      described_class.new(
+        content: complex_html, content_type: "text/html",
+        status_code: 200,
+        archive_url: "https://web.archive.org/web/20220615/https://example.com/",
+        original_url: "https://example.com/", timestamp: ts
+      )
+    end
+
+    describe "#headings" do
+      it "extracts headings with levels" do
+        h = html_page.headings
+        expect(h.size).to eq(2)
+        expect(h[0]).to eq({ level: 1, text: "Main Title" })
+        expect(h[1]).to eq({ level: 2, text: "Subtitle" })
+      end
+
+      it "returns empty array for non-HTML" do
+        page = described_class.new(
+          content: "body", content_type: "text/plain",
+          status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+        )
+        expect(page.headings).to eq([])
+      end
+    end
+
+    describe "#images" do
+      it "extracts images with attributes" do
+        imgs = html_page.images
+        expect(imgs.size).to eq(2)
+        expect(imgs[0][:src]).to eq("photo.jpg")
+        expect(imgs[0][:alt]).to eq("A photo")
+        expect(imgs[0][:width]).to eq(800)
+      end
+
+      it "returns empty array for non-HTML" do
+        page = described_class.new(
+          content: "body", content_type: "text/css",
+          status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+        )
+        expect(page.images).to eq([])
+      end
+    end
+
+    describe "#forms" do
+      it "extracts forms with fields" do
+        forms = html_page.forms
+        expect(forms.size).to eq(1)
+        expect(forms[0][:action]).to eq("/submit")
+        expect(forms[0][:method]).to eq("POST")
+        field_names = forms[0][:fields].map { |f| f[:name] }
+        expect(field_names).to contain_exactly("q", "csrf", "color")
+      end
+
+      it "returns empty array for non-HTML" do
+        page = described_class.new(
+          content: "body", content_type: "text/plain",
+          status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+        )
+        expect(page.forms).to eq([])
+      end
+    end
+
+    describe "#scripts" do
+      it "extracts script elements" do
+        scripts = html_page.scripts
+        expect(scripts.size).to eq(2)
+        expect(scripts[0][:src]).to eq("app.js")
+        expect(scripts[0][:type]).to eq("text/javascript")
+        expect(scripts[1][:src]).to eq("")
+      end
+
+      it "returns empty array for non-HTML" do
+        page = described_class.new(
+          content: "body", content_type: "text/plain",
+          status_code: 200, archive_url: "u", original_url: "u", timestamp: ts
+        )
+        expect(page.scripts).to eq([])
+      end
+    end
+  end
 end
