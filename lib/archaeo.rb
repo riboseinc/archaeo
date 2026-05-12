@@ -48,4 +48,11 @@ module Archaeo
   autoload :Fetcher, "archaeo/fetcher"
   autoload :BulkDownloader, "archaeo/bulk_downloader"
   autoload :Cli, "archaeo/cli"
+  autoload :EncodingDetector, "archaeo/encoding_detector"
+  autoload :PathSanitizer, "archaeo/path_sanitizer"
+  autoload :RateLimiter, "archaeo/rate_limiter"
+  autoload :PatternFilter, "archaeo/pattern_filter"
+  autoload :CdxCache, "archaeo/cdx_cache"
+  autoload :SubdomainDiscovery, "archaeo/subdomain_discovery"
+  autoload :ArchiveHealthCheck, "archaeo/archive_health_check"
 end

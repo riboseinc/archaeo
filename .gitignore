@@ -17,3 +17,6 @@ Gemfile.lock
 # development files
 TODO*
 reference-docs/
+
+# cache directory
+.cache/
