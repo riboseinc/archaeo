@@ -27,6 +27,8 @@ module Archaeo
     option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
     option :match_type,
            desc: "Match type (exact, prefix, host, domain)"
+    option :exact_url, type: :boolean, default: false,
+                       desc: "Match exact URL only"
     option :filter, type: :array, desc: "CDX filter expressions"
     option :filter_status, type: :array,
                            desc: "Only include these status codes"
@@ -39,6 +41,8 @@ module Archaeo
                     default: "table"
     option :fields, type: :array,
                     desc: "Specific fields to print (timestamp,original,etc)"
+    option :list_only, type: :boolean, default: false,
+                       desc: "List files that would be downloaded"
     def snapshots(url)
       fmt = validate_output_format
       handle_errors do
@@ -228,6 +232,8 @@ module Archaeo
     option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
     option :resume, type: :boolean, default: false,
                     desc: "Resume interrupted download"
+    option :reset, type: :boolean, default: false,
+                   desc: "Clear download state and cache for fresh start"
     option :concurrency, type: :numeric, default: 1,
                          desc: "Number of parallel downloads"
     option :dry_run, type: :boolean, default: false,
@@ -241,6 +247,15 @@ module Archaeo
     option :snapshot_at, desc: "Download composite snapshot at timestamp"
     option :rate_limit, type: :numeric, default: 0,
                         desc: "Min seconds between requests"
+    option :max_snapshots, type: :numeric,
+                           desc: "Limit to N most recent snapshots"
+    option :recursive_subdomains, type: :boolean, default: false,
+                                  desc: "Discover and download subdomains"
+    option :subdomain_depth, type: :numeric, default: 1,
+                             desc: "Max subdomain recursion depth"
+    option :strategy, desc: "Download strategy (newest_first, oldest_first, " \
+                            "breadth_first, depth_first)",
+                      default: "newest_first"
     def download(url)
       handle_errors do
         rate_limiter = RateLimiter.new(
@@ -307,6 +322,35 @@ module Archaeo
       end
     end
 
+    desc "coverage URL",
+         "Analyze archive coverage for a URL"
+    option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
+    option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
+    option :format, desc: "Output format (table, json)", default: "table"
+    def coverage(url)
+      handle_errors do
+        analyzer = CoverageAnalyzer.new
+        report = analyzer.analyze(url, from: options[:from], to: options[:to])
+        output_coverage(report)
+      end
+    end
+
+    desc "snapshot-diff URL TIMESTAMP_A TIMESTAMP_B",
+         "Compare two snapshots of a URL"
+    option :format, desc: "Output format (table, json)", default: "table"
+    def snapshot_diff(url, timestamp_a, timestamp_b)
+      handle_errors do
+        fetcher = Fetcher.new
+        page_a = fetcher.fetch(url, timestamp: timestamp_a)
+        page_b = fetcher.fetch(url, timestamp: timestamp_b)
+        diff = SnapshotDiff.new(
+          url: url, page_a: page_a, page_b: page_b,
+          timestamp_a: timestamp_a, timestamp_b: timestamp_b
+        )
+        output_snapshot_diff(diff)
+      end
+    end
+
     CDX_OPTION_MAP = {
       from: :from,
       to: :to,
@@ -352,6 +396,9 @@ module Archaeo
     def fetch_snapshots(url)
       cdx = CdxApi.new
       opts = build_cdx_options(options)
+      if options[:exact_url]
+        opts[:match_type] = "exact"
+      end
       cdx.snapshots(url, **opts).to_a
     end
 
@@ -435,6 +482,11 @@ module Archaeo
     end
 
     def download_with_progress(downloader, url, filter)
+      if options[:reset]
+        state = DownloadState.new(options[:output])
+        state.clear
+      end
+
       summary = downloader.download(
         url,
         from: options[:from], to: options[:to],
@@ -442,9 +494,32 @@ module Archaeo
         all_timestamps: options[:all_timestamps],
         filter: filter,
         page_requisites: options[:page_requisites],
-        snapshot_at: options[:snapshot_at]
+        snapshot_at: options[:snapshot_at],
+        max_snapshots: options[:max_snapshots],
+        strategy: options[:strategy]&.to_sym
       ) { |c, t, s| print_progress(c, t, s) }
       print_summary(summary)
+
+      return unless options[:recursive_subdomains]
+
+      discover_and_download_subdomains(url, downloader, filter)
+    end
+
+    def discover_and_download_subdomains(url, downloader, filter)
+      discovery = SubdomainDiscovery.new(
+        URI.parse(UrlNormalizer.normalize(url)).host,
+        max_depth: options[:subdomain_depth],
+      )
+      subdomains = discovery.scan_files(options[:output])
+      subdomains.each do |subdomain|
+        warn "Downloading subdomain: #{subdomain}" unless quiet?
+        downloader.download(
+          subdomain,
+          from: options[:from], to: options[:to],
+          resume: options[:resume],
+          filter: filter
+        ) { |c, t, s| print_progress(c, t, s) }
+      end
     end
 
     def output_health(report)
@@ -624,6 +699,52 @@ module Archaeo
         end
       end
       dupes
+    end
+
+    def output_coverage(report)
+      case options[:format]
+      when "json"
+        puts JSON.generate(report.as_json)
+      else
+        puts "URL: #{report.url}"
+        puts "Total URLs: #{report.total_urls}"
+        puts "Archived URLs: #{report.archived_urls}"
+        puts "Coverage: #{report.coverage_percent}%"
+        puts "Missing: #{report.missing_count}"
+        if report.has_gaps?
+          puts "Temporal gaps:"
+          report.temporal_gaps.each do |gap|
+            puts "  #{gap[:from]} → #{gap[:to]} (#{gap[:gap_days]} days)"
+          end
+        end
+        puts "Status distribution:"
+        report.status_distribution.sort_by { |_, v| -v }.each do |code, count|
+          puts "  #{code}: #{count}"
+        end
+      end
+    end
+
+    def output_snapshot_diff(diff)
+      case options[:format]
+      when "json"
+        puts JSON.generate(diff.as_json)
+      else
+        puts "Comparing #{diff.to_h[:timestamp_a]} vs #{diff.to_h[:timestamp_b]}"
+        puts "Content changed: #{diff.content_changed? ? 'Yes' : 'No'}"
+        link_changes = diff.link_changes
+        puts "Links added: #{link_changes[:added].size}"
+        puts "Links removed: #{link_changes[:removed].size}"
+        asset_changes = diff.asset_changes
+        puts "Assets added: #{asset_changes[:added].size}"
+        puts "Assets removed: #{asset_changes[:removed].size}"
+        structural = diff.structural_changes
+        unless structural.empty?
+          puts "Structural changes:"
+          structural.each do |tag, change|
+            puts "  <#{tag}>: #{change[:from]} → #{change[:to]}"
+          end
+        end
+      end
     end
   end
 end
