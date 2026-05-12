@@ -40,8 +40,9 @@ module Archaeo
       last_skip_timestamp: "lastSkipTimestamp",
     }.freeze
 
-    def initialize(client: HttpClient.new)
+    def initialize(client: HttpClient.new, cache_dir: nil)
       @client = client
+      @cache = cache_dir ? CdxCache.new(cache_dir) : nil
     end
 
     # Returns an Enumerator of Snapshot objects, auto-paginating
@@ -50,13 +51,26 @@ module Archaeo
       url = UrlNormalizer.normalize(url)
       validate_options!(options)
 
-      Enumerator.new do |yielder|
-        if options.key?(:page)
-          fetch_page(url, options, yielder)
-        else
-          fetch_with_resume_key(url, options, yielder)
-        end
+      if @cache && !options.key?(:page)
+        return cached_snapshots(url, options)
       end
+
+      build_enumerator(url, options)
+    end
+
+    # Returns one snapshot per unique URL, picking the newest at or before
+    # the given timestamp for point-in-time site reconstruction.
+    def composite_snapshot(url, timestamp:, collapse: [])
+      ts = Timestamp.coerce(timestamp)
+      options = { to: ts.to_s, sort: "reverse" }
+      options[:collapse] = collapse unless collapse.empty?
+
+      seen = {}
+      snapshots(url, **options).each do |snap|
+        key = snap.original_url
+        seen[key] = snap unless seen.key?(key)
+      end
+      seen.values
     end
 
     def near(url, timestamp:)
@@ -152,6 +166,24 @@ module Archaeo
     end
 
     private
+
+    def cached_snapshots(url, options)
+      Enumerator.new do |yielder|
+        @cache.fetch(url, **options) do
+          build_enumerator(url, options).to_a
+        end.each { |s| yielder << s }
+      end
+    end
+
+    def build_enumerator(url, options)
+      Enumerator.new do |yielder|
+        if options.key?(:page)
+          fetch_page(url, options, yielder)
+        else
+          fetch_with_resume_key(url, options, yielder)
+        end
+      end
+    end
 
     def fetch_with_resume_key(url, options, yielder)
       params = build_params(url, options)
