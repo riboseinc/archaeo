@@ -130,7 +130,7 @@ module Archaeo
       html_charset = detect_html_charset
       return Encoding.find(html_charset) if html_charset
 
-      Encoding::UTF_8
+      EncodingDetector.new.detect(@raw_content)
     rescue ArgumentError
       Encoding::UTF_8
     end
