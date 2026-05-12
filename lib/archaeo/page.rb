@@ -93,6 +93,52 @@ module Archaeo
       end
     end
 
+    def headings
+      return [] unless html?
+
+      @headings ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        doc.css("h1, h2, h3, h4, h5, h6").map do |el|
+          { level: el.name[1].to_i, text: el.text.strip }
+        end
+      end
+    end
+
+    def images
+      return [] unless html?
+
+      @images ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        doc.css("img[src]").map do |el|
+          { src: el["src"], alt: el["alt"].to_s,
+            width: el["width"]&.to_i, height: el["height"]&.to_i }
+        end
+      end
+    end
+
+    def forms
+      return [] unless html?
+
+      @forms ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        doc.css("form").map do |form|
+          { action: form["action"].to_s, method: (form["method"] || "GET").upcase,
+            fields: extract_form_fields(form) }
+        end
+      end
+    end
+
+    def scripts
+      return [] unless html?
+
+      @scripts ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        doc.css("script").map do |el|
+          { src: el["src"].to_s, type: el["type"].to_s }
+        end
+      end
+    end
+
     def to_h
       {
         content_type: @content_type,
@@ -201,6 +247,13 @@ module Archaeo
       URI.join(base, href).to_s
     rescue URI::InvalidURIError
       nil
+    end
+
+    def extract_form_fields(form)
+      inputs = form.css("input, select, textarea").map do |el|
+        { name: el["name"].to_s, type: (el["type"] || el.name).to_s }
+      end
+      inputs.reject { |f| f[:name].empty? }
     end
   end
 end
