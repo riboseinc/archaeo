@@ -11,9 +11,11 @@ module Archaeo
     TIMESTAMP_RE = %r{web\.archive\.org/web/(\d{14})}
 
     def initialize(client: HttpClient.new,
-                   max_tries: DEFAULT_MAX_TRIES)
+                   max_tries: DEFAULT_MAX_TRIES,
+                   rate_limiter: nil)
       @client = client
       @max_tries = max_tries
+      @rate_limiter = rate_limiter
     end
 
     def save(url)
@@ -44,6 +46,7 @@ module Archaeo
     def attempt_save(save_url, start_time, url)
       @max_tries.times do |attempt|
         sleep(retry_delay(attempt)) if attempt.positive?
+        @rate_limiter&.wait(host: "web.archive.org")
 
         response = @client.get(save_url)
         check_response_errors!(response, url)
