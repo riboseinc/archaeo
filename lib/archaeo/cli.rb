@@ -37,6 +37,8 @@ module Archaeo
     option :limit, type: :numeric, desc: "Max snapshots to return"
     option :format, desc: "Output format (table, json, csv)",
                     default: "table"
+    option :fields, type: :array,
+                    desc: "Specific fields to print (timestamp,original,etc)"
     def snapshots(url)
       fmt = validate_output_format
       handle_errors do
@@ -123,11 +125,21 @@ module Archaeo
     end
 
     desc "save URL", "Save a URL to the Wayback Machine"
+    option :headers, type: :boolean, default: false,
+                     desc: "Show response headers"
     def save(url)
       handle_errors do
         result = SaveApi.new.save(url)
         label = result.cached? ? "Cached" : "Saved"
         puts "#{label}: #{result.archive_url}"
+        if options[:headers] && result.response_headers
+          puts "Status: #{result.status_code}"
+          puts "Response URL: #{result.response_url}" if result.response_url
+          puts "Headers:"
+          result.response_headers.each do |k, v|
+            puts "  #{k}: #{v}"
+          end
+        end
       end
     end
 
@@ -162,11 +174,16 @@ module Archaeo
          "Fetch a page and rewrite archive URLs to local paths"
     option :prefix, desc: "Local path prefix", default: "local"
     option :output, desc: "Write rewritten HTML to file"
+    option :rewrite_js, type: :boolean, default: false,
+                        desc: "Rewrite URLs in JavaScript strings"
+    option :rewrite_absolute, type: :boolean, default: false,
+                              desc: "Rewrite all absolute archive URLs"
     def rewrite(url, timestamp)
       handle_errors do
         coerced = Timestamp.coerce(timestamp)
         page = Fetcher.new.fetch(url, timestamp: coerced)
-        rewritten = build_rewriter(url, coerced).rewrite_html(page.content)
+        rewriter = build_rewriter(url, coerced)
+        rewritten = rewriter.rewrite_html(page.content)
         output_rewritten(rewritten)
       end
     end
@@ -215,22 +232,61 @@ module Archaeo
                          desc: "Number of parallel downloads"
     option :dry_run, type: :boolean, default: false,
                      desc: "Preview downloads without fetching"
+    option :all_timestamps, type: :boolean, default: false,
+                            desc: "Download all timestamps, not just latest"
+    option :only, desc: "Only download URLs matching this pattern"
+    option :exclude, desc: "Exclude URLs matching this pattern"
+    option :page_requisites, type: :boolean, default: false,
+                             desc: "Download linked assets (CSS/JS/images)"
+    option :snapshot_at, desc: "Download composite snapshot at timestamp"
+    option :rate_limit, type: :numeric, default: 0,
+                        desc: "Min seconds between requests"
     def download(url)
       handle_errors do
+        rate_limiter = RateLimiter.new(
+          min_interval: options[:rate_limit].to_f,
+        )
+        filter = build_filter
         downloader = BulkDownloader.new(
           output_dir: options[:output],
           concurrency: options[:concurrency],
+          rate_limiter: rate_limiter,
         )
-        download_with_progress(downloader, url)
+        download_with_progress(downloader, url, filter)
+      end
+    end
+
+    desc "health URL", "Check health of archived snapshots"
+    option :from, desc: "Start timestamp"
+    option :to, desc: "End timestamp"
+    option :sample, type: :numeric, desc: "Check only N snapshots"
+    option :format, desc: "Output format (table, json)", default: "table"
+    def health(url)
+      handle_errors do
+        checker = ArchiveHealthCheck.new
+        report = checker.check(
+          url,
+          from: options[:from],
+          to: options[:to],
+          sample: options[:sample],
+        )
+        output_health(report)
       end
     end
 
     desc "known_urls DOMAIN",
          "List all known URLs for a domain"
+    option :subdomain, type: :boolean, default: false,
+                       desc: "Include subdomain URLs"
+    option :file, desc: "Save URLs to file"
     def known_urls(domain)
       handle_errors do
-        CdxApi.new.known_urls(domain).each do |u|
-          puts u
+        match_type = options[:subdomain] ? "domain" : "prefix"
+        urls = CdxApi.new.known_urls(domain, match_type: match_type)
+        if options[:file]
+          save_urls_to_file(urls, options[:file])
+        else
+          urls.each { |u| puts u }
         end
       end
     end
@@ -331,7 +387,11 @@ module Archaeo
     def build_rewriter(url, timestamp)
       normalized = UrlNormalizer.normalize(url)
       archive_prefix = ArchiveUrl.new(normalized, timestamp: timestamp).to_s
-      UrlRewriter.new(archive_prefix, options[:prefix])
+      UrlRewriter.new(
+        archive_prefix, options[:prefix],
+        rewrite_js: options[:rewrite_js],
+        rewrite_absolute: options[:rewrite_absolute]
+      )
     end
 
     def output_rewritten(content)
@@ -366,12 +426,53 @@ module Archaeo
       end
     end
 
-    def download_with_progress(downloader, url)
+    def build_filter
+      only = options[:only]
+      exclude = options[:exclude]
+      return nil unless only || exclude
+
+      PatternFilter.new(only: only, exclude: exclude)
+    end
+
+    def download_with_progress(downloader, url, filter)
       summary = downloader.download(
-        url, from: options[:from], to: options[:to],
-             resume: options[:resume], dry_run: options[:dry_run]
+        url,
+        from: options[:from], to: options[:to],
+        resume: options[:resume], dry_run: options[:dry_run],
+        all_timestamps: options[:all_timestamps],
+        filter: filter,
+        page_requisites: options[:page_requisites],
+        snapshot_at: options[:snapshot_at]
       ) { |c, t, s| print_progress(c, t, s) }
       print_summary(summary)
+    end
+
+    def output_health(report)
+      case options[:format]
+      when "json"
+        data = {
+          total: report.total,
+          accessible: report.accessible,
+          missing: report.missing,
+          errors: report.errors,
+        }
+        puts JSON.generate(data)
+      else
+        puts "Total: #{report.total}"
+        puts "Accessible: #{report.accessible}"
+        puts "Missing: #{report.missing}"
+        puts "Errors: #{report.errors}"
+      end
+    end
+
+    def save_urls_to_file(urls, file_path)
+      FileUtils.mkdir_p(File.dirname(file_path)) unless File.dirname(file_path) == "."
+      File.open(file_path, "w") do |f|
+        urls.each do |url|
+          f.puts(url)
+        end
+      end
+      warn "Saved #{urls.size} URLs to #{file_path}" unless quiet?
     end
 
     def print_progress(current, total, snap)
