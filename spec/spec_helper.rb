@@ -30,6 +30,10 @@ class FakeHttpClient
     response
   end
 
+  def head(url, headers: {})
+    get(url, headers: headers)
+  end
+
   def all_urls
     @all_urls
   end
