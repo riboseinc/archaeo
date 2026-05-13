@@ -4,7 +4,7 @@
 
 Archaeo is a Ruby client for the Internet Archive's https://web.archive.org[Wayback Machine] APIs.
 
-It provides a model-driven interface for querying archived snapshots, checking availability, saving URLs, fetching archived content, and bulk downloading with resume support.
+It provides a model-driven interface for querying archived snapshots, checking availability, saving URLs, fetching archived content, bulk downloading with resume support, snapshot comparison, coverage analysis, content tracking, full-text search, WARC format I/O, and more.
 
 == Installation
 
@@ -100,6 +100,18 @@ cdx.num_pages("example.com")
 
 # Discover all known URLs for a domain
 cdx.known_urls("example.com")
+
+# Composite snapshot (point-in-time site reconstruction)
+cdx.composite_snapshot("example.com", timestamp: "20220615",
+                       collapse: ["digest"])
+# => picks newest snapshot per URL at or before the given timestamp
+
+# CDX caching (speeds up repeated queries)
+cdx = Archaeo::CdxApi.new(cache_dir: ".cache")
+
+# Parallel CDX fetching (thread pool for multi-page queries)
+parallel = Archaeo::ParallelCdx.new(concurrency: 4)
+snapshots = parallel.snapshots("example.com")
 ----
 
 === Check Availability
@@ -141,6 +153,14 @@ result.as_json      # => JSON-serializable Hash
 results = save.batch_save(%w[https://a.com https://b.com],
                           delay: 2, stop_on_error: false)
 results.each { |r| puts "#{r.url}: #{r.success?}" }
+
+# Inspect response details
+result.status_code       # => HTTP status from Save API
+result.response_url      # => redirect URL if any
+result.response_headers  # => Hash of response headers
+
+# With rate limiter
+save = Archaeo::SaveApi.new(rate_limiter: Archaeo::RateLimiter.new(min_interval: 1.0))
 ----
 
 === Fetch Archived Content
@@ -182,6 +202,12 @@ page = fetcher.fetch!("https://example.com/",
 # Page links and meta extraction
 page.links      # => [{ href: "...", text: "...", external: true/false }]
 page.meta_tags  # => { "description" => "...", "og:title" => "...", "canonical" => "..." }
+
+# Structured content extraction (HTML pages only)
+page.headings   # => [{ level: 1, text: "Title" }, { level: 2, text: "Subtitle" }]
+page.images     # => [{ src: "photo.jpg", alt: "...", width: 800, height: 600 }]
+page.forms      # => [{ action: "/submit", method: "POST", fields: [{ name: "q", type: "text" }] }]
+page.scripts    # => [{ src: "app.js", type: "text/javascript" }]
 ----
 
 === Fetch Page with Assets
@@ -260,6 +286,46 @@ downloader = Archaeo::BulkDownloader.new(
   output_dir: "archive", concurrency: 4,
 )
 downloader.download("example.com")
+
+# Download with page requisites (CSS/JS/images)
+downloader.download("example.com", page_requisites: true)
+
+# Point-in-time composite snapshot
+downloader.download("example.com", snapshot_at: "20220615")
+
+# All timestamps (not just latest per URL)
+downloader.download("example.com", all_timestamps: true)
+
+# URL pattern filtering
+filter = Archaeo::PatternFilter.new(only: ".*\\.html$", exclude: nil)
+downloader.download("example.com", filter: filter)
+
+# Download scheduling strategies
+scheduler = Archaeo::DownloadScheduler.new(
+  strategy: :breadth_first,   # or :depth_first, :newest_first, :oldest_first
+  priority: :html_first,
+  max_file_size: 50 * 1024 * 1024,
+)
+# Integrates with BulkDownloader via strategy: option
+
+# Rate limiting
+limiter = Archaeo::RateLimiter.new(min_interval: 0.5)
+downloader = Archaeo::BulkDownloader.new(
+  output_dir: "archive", rate_limiter: limiter,
+)
+
+# Limit snapshots
+downloader.download("example.com", max_snapshots: 10, strategy: :newest_first)
+
+# Progress reporting
+downloader.download("example.com") do |current, total, snap|
+  report = Archaeo::ProgressReport.new(
+    current: current, total: total,
+    downloaded_bytes: current * 1024, elapsed: 10.0,
+    current_url: snap.original_url,
+  )
+  puts "#{report.percent_complete}% — ETA #{report.eta}s"
+end
 ----
 
 === Download State (Resume Tracking)
@@ -351,9 +417,21 @@ rewriter.rewrite("https://web.archive.org/web/20220615000000/style.css")
 # Rewrite batch
 rewriter.rewrite_batch(["url1", "url2"])
 
-# Rewrite URLs within HTML (src, href, srcset, data-src, poster)
+# Rewrite URLs within HTML (src, href, srcset, data-src, poster, action, data-url)
 # Also rewrites inline style url() and <style> element url()
 rewritten_html = rewriter.rewrite_html(html_content)
+
+# Enhanced rewriting with JS strings, absolute URLs, and server extensions
+rewriter = Archaeo::UrlRewriter.new(
+  "https://web.archive.org/web/20220615000000/",
+  "local",
+  rewrite_js: true,           # rewrite URLs inside JS string literals
+  rewrite_absolute: true,     # rewrite all absolute archive URLs (not just prefix match)
+  server_extensions: true,    # handle .php/.asp/.jsp URLs specially
+)
+
+# Standalone CSS file rewriting
+rewritten_css = rewriter.rewrite_css(css_content)
 ----
 
 === Snapshot Convenience
@@ -468,6 +546,218 @@ client.pool_stats
 #      idle_times: { "web.archive.org": 12 } }
 ----
 
+=== Snapshot Comparison (Diff)
+
+[source,ruby]
+----
+diff = Archaeo::SnapshotDiff.new(
+  url: "https://example.com/",
+  page_a: page_a, page_b: page_b,
+  timestamp_a: "20220101", timestamp_b: "20220615",
+)
+
+diff.content_changed?    # => true/false (SHA256 digest comparison)
+diff.text_diff           # => unified diff of content lines
+diff.link_changes        # => { added: [...], removed: [...], unchanged: N }
+diff.asset_changes       # => { added: [...], removed: [...], unchanged: N }
+diff.structural_changes  # => { "a" => { from: 1, to: 2 }, ... }
+diff.to_h                # => Hash with all fields
+----
+
+=== Coverage Analysis
+
+[source,ruby]
+----
+analyzer = Archaeo::CoverageAnalyzer.new
+report = analyzer.analyze("example.com", from: "20220101", to: "20221231")
+
+report.url               # => "example.com"
+report.total_urls        # => unique URLs found
+report.archived_urls     # => URLs with at least one capture
+report.coverage_percent  # => 87.3
+report.temporal_gaps      # => [{ from: ts, to: ts, gap_days: 45 }, ...]
+report.has_gaps?         # => true/false
+report.status_distribution # => { 200 => 150, 404 => 10 }
+report.missing_assets    # => resources referenced but not archived
+----
+
+=== Archive Health Check
+
+[source,ruby]
+----
+checker = Archaeo::ArchiveHealthCheck.new
+report = checker.check("example.com", from: "20220101", to: "20221231")
+
+report.total       # => 150
+report.accessible  # => 148
+report.missing     # => 2
+report.errors      # => 0
+report.details     # => [HealthDetail, ...]
+
+# Sample a subset (for large collections)
+report = checker.check("example.com", sample: 50)
+----
+
+=== Content Tracking
+
+[source,ruby]
+----
+tracker = Archaeo::ContentTracker.new
+report = tracker.track("example.com", from: "20220101", to: "20221231")
+
+report.changed_urls       # => URLs whose digest changed over time
+report.new_urls           # => URLs that appeared in the second half
+report.removed_urls       # => URLs that disappeared in the second half
+report.content_frequency  # => { "url" => unique_digest_count }
+report.any_changes?       # => true if any changes detected
+----
+
+=== Archive Search
+
+[source,ruby]
+----
+searcher = Archaeo::ArchiveSearch.new
+results = searcher.search("example.com",
+                          query: "contact us",
+                          from: "20220101",
+                          to: "20221231",
+                          case_sensitive: false,
+                          max_results: 10)
+
+results.each do |match|
+  puts match.snapshot.timestamp  # => when it was archived
+  puts match.url                 # => the page URL
+  puts match.context             # => "...contact us..." with surrounding text
+end
+----
+
+=== WARC Support
+
+[source,ruby]
+----
+# Export snapshots to WARC format
+writer = Archaeo::WarcWriter.new
+writer.write("archive/output.warc", pages)
+
+# Gzip-compressed output
+writer.write("archive/output.warc.gz", pages, compress: true)
+
+# Read WARC files
+reader = Archaeo::WarcReader.new
+records = reader.read_records("archive/output.warc")
+
+records.each do |record|
+  record.warc_type    # => "response" or "warcinfo"
+  record.target_uri   # => original URL
+  record.body         # => archived content
+  record.response?    # => true for response records
+end
+----
+
+=== Configuration
+
+[source,ruby]
+----
+# Load .archaeo.yml config
+config = Archaeo::Configuration.new
+
+config.get("output_dir")             # => "archive" (default)
+config.get("rate_limit")             # => 0.5
+config.get("concurrency", profile: "fast")  # => 8
+
+# Persist settings
+config.set("rate_limit", 1.0)
+config.set("concurrency", 4, profile: "fast")
+
+# List profiles
+config.profiles  # => ["fast", "careful"]
+----
+
+=== Encoding Detection
+
+[source,ruby]
+----
+detector = Archaeo::EncodingDetector.new
+
+# Detect encoding from content + content-type charset
+encoding = detector.detect(binary_content, content_type: "text/html; charset=iso-8859-1")
+# => Encoding::ISO_8859_1
+
+# Detect from HTML meta tag
+encoding = detector.detect("<html><head><meta charset='utf-8'>...")
+# => Encoding::UTF_8
+
+# Multi-encoding fallback chain
+detector.detect(content)  # tries UTF-8, ISO-8859-1, Windows-1252
+----
+
+=== Path Sanitization
+
+[source,ruby]
+----
+sanitizer = Archaeo::PathSanitizer.new
+safe_path = sanitizer.sanitize("https://example.com/path?q=1&r=2")
+# => "path_q_1_r_2"
+
+# Handles query string hashing, recursive percent-decoding,
+# and file/directory conflict resolution
+----
+
+=== Pattern Filtering
+
+[source,ruby]
+----
+# Include/exclude URL patterns
+filter = Archaeo::PatternFilter.new(
+  only: ".*\\.html$",       # regex string or %r{} Regexp
+  exclude: /\\/api\\//,
+)
+
+filter.match?("https://example.com/page.html")  # => true
+filter.match?("https://example.com/style.css")   # => false
+filter.match?("https://example.com/api/data")    # => false (excluded)
+----
+
+=== Subdomain Discovery
+
+[source,ruby]
+----
+discovery = Archaeo::SubdomainDiscovery.new("example.com", max_depth: 2)
+
+# Scan downloaded files to discover subdomains
+subdomains = discovery.scan_files("archive/")
+# => ["cdn.example.com", "blog.example.com"]
+
+# Scan raw content (HTML, CSS, JS)
+subdomains = discovery.scan_content("<a href='https://blog.example.com/post'>")
+# => ["blog.example.com"]
+----
+
+=== Rate Limiting
+
+[source,ruby]
+----
+# Per-host rate limiter with adaptive backoff
+limiter = Archaeo::RateLimiter.new(min_interval: 0.5)
+limiter.wait(host: "web.archive.org")  # sleeps if needed
+limiter.wait(host: "api.example.com")  # independent per-host tracking
+----
+
+=== Color Output
+
+[source,ruby]
+----
+color = Archaeo::ColorOutput.new(enabled: true)
+
+color.success("Done!")    # green + bold
+color.warning("Careful")  # yellow + bold
+color.error("Failed!")    # red + bold
+color.info("Info")        # cyan
+
+# Auto-detects from TTY, NO_COLOR env, TERM=dumb
+color = Archaeo::ColorOutput.new  # enabled: auto-detected
+----
+
 === Command-Line Interface
 
 [source,bash]
@@ -543,11 +833,67 @@ archaeo download --concurrency 4 example.com --output ./archive
 # Resume interrupted download
 archaeo download example.com --resume
 
+# Download with page requisites (linked assets)
+archaeo download --page-requisites example.com
+
+# Point-in-time composite snapshot
+archaeo download --snapshot-at 20220615 example.com
+
+# All timestamps (not just latest)
+archaeo download --all-timestamps example.com
+
+# URL pattern filtering
+archaeo download --only '.*\.html$' --exclude '/api/' example.com
+
+# Download scheduling
+archaeo download --strategy newest_first --max-snapshots 10 example.com
+
+# Reset download state
+archaeo download --reset example.com
+
+# Rate limiting
+archaeo download --rate-limit 0.5 example.com
+
+# Recursive subdomain discovery
+archaeo download --recursive-subdomains --subdomain-depth 2 example.com
+
 # Suppress progress messages
 archaeo --quiet download example.com
 
+# Disable colored output
+archaeo --no-color download example.com
+
 # Discover all known URLs for a domain
 archaeo known_urls example.com
+archaeo known_urls --file urls.txt example.com
+archaeo known_urls --subdomain example.com
+
+# Check archive health
+archaeo health example.com
+archaeo health --from 20220101 --to 20221231 --sample 50 example.com
+
+# Analyze archive coverage
+archaeo coverage example.com
+archaeo coverage --from 20220101 --to 20221231 --format json example.com
+
+# Compare two snapshots
+archaeo snapshot-diff example.com 20220101 20220615
+archaeo snapshot-diff --format json example.com 20220101 20220615
+
+# Search archived content
+archaeo search example.com "contact us"
+archaeo search --from 20220101 --to 20221231 --max-results 10 example.com "about"
+
+# Track content changes over time
+archaeo track-changes example.com
+archaeo track-changes --from 20220101 --to 20221231 --format json example.com
+
+# Export to WARC format
+archaeo warc-export --output archive.warc example.com
+archaeo warc-export --output archive.warc.gz --gzip example.com
+
+# Save API with headers
+archaeo save --headers https://example.com/
 ----
 
 === Error Handling
@@ -585,28 +931,32 @@ Archaeo follows a model-driven, OOP design:
 | Layer | Classes | Purpose
 
 | *Models*
-| `Timestamp`, `ArchiveUrl`, `Snapshot`, `Page`, `PageBundle`, `SaveResult`, `AvailabilityResult`, `CdxTimeline`
+| `Timestamp`, `ArchiveUrl`, `Snapshot`, `Page`, `PageBundle`, `SaveResult`, `AvailabilityResult`, `CdxTimeline`, `ProgressReport`, `CoverageReport`, `ContentChangeReport`, `SearchResult`, `WarcRecord`, `HealthReport`
 | Domain value objects with `to_h`, `as_json`, `inspect` support
 
 | *URL Processing*
-| `UrlNormalizer`, `CdxFilter`, `UrlRewriter`
-| URL sanitization, validated filtering with composition, and HTML URL rewriting
+| `UrlNormalizer`, `CdxFilter`, `UrlRewriter`, `PatternFilter`, `PathSanitizer`
+| URL sanitization, validated filtering, regex include/exclude, path conflict resolution, and HTML/JS/CSS URL rewriting
 
 | *Asset Extraction*
 | `AssetExtractor`, `AssetList`
 | Parse HTML for resource URLs including preloads and modulepreload
 
 | *APIs*
-| `CdxApi`, `AvailabilityApi`, `SaveApi`
-| Query and mutate the archive
+| `CdxApi`, `ParallelCdx`, `AvailabilityApi`, `SaveApi`, `ArchiveSearch`
+| Query and mutate the archive, parallel CDX fetching, full-text search
 
 | *Operations*
-| `Fetcher`, `BulkDownloader`, `DownloadState`
-| Download content with resume, dry-run, digest verification, and download summaries
+| `Fetcher`, `BulkDownloader`, `DownloadState`, `DownloadScheduler`, `SubdomainDiscovery`
+| Download content with resume, scheduling strategies, subdomain discovery, and digest verification
+
+| *Analysis*
+| `SnapshotDiff`, `CoverageAnalyzer`, `ContentTracker`, `ArchiveHealthCheck`
+| Compare snapshots, analyze coverage, track changes over time, verify accessibility
 
 | *Infrastructure*
-| `HttpClient`
-| HTTP transport with retries, gzip, 429/503 handling, connection pooling, and per-request observability
+| `HttpClient`, `RateLimiter`, `EncodingDetector`, `CdxCache`, `Configuration`, `ColorOutput`, `WarcWriter`, `WarcReader`
+| HTTP transport, rate limiting, encoding detection, caching, config management, WARC I/O, and color output
 |===
 
 All API classes accept an `HttpClient` via dependency injection for testability.
