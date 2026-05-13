@@ -194,6 +194,32 @@ module Archaeo
       end
     end
 
+    desc "rewrite-local INPUT_DIR",
+         "Rewrite previously downloaded files to use local paths"
+    option :output, desc: "Output directory (default: rewrite in-place)",
+                    required: false
+    option :prefix, desc: "Local path prefix", default: "local"
+    option :rewrite_js, type: :boolean, default: false,
+                        desc: "Rewrite URLs in JavaScript strings"
+    option :rewrite_absolute, type: :boolean, default: false,
+                              desc: "Rewrite all absolute archive URLs"
+    def rewrite_local(input_dir)
+      handle_errors do
+        output_dir = options[:output] || input_dir
+        local_rewriter = LocalRewriter.new(
+          prefix: options[:prefix],
+          rewrite_js: options[:rewrite_js],
+          rewrite_absolute: options[:rewrite_absolute],
+        )
+        summary = local_rewriter.rewrite_directory(input_dir, output_dir)
+        color = build_color
+        warn color.success(
+          "Rewrote #{summary.rewritten}/#{summary.total} files " \
+          "in #{summary.elapsed.round(1)}s",
+        )
+      end
+    end
+
     desc "diff URL TIMESTAMP_A TIMESTAMP_B",
          "Compare assets of two archived snapshots"
     option :format, desc: "Output format (table, json)", default: "table"
