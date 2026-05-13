@@ -139,6 +139,16 @@ module Archaeo
       end
     end
 
+    def microposts
+      return [] unless html?
+
+      @microposts ||= begin
+        doc = Nokogiri::HTML(@raw_content)
+        containers = find_article_containers(doc)
+        containers.filter_map { |el| extract_micropost(el) }
+      end
+    end
+
     def to_h
       {
         content_type: @content_type,
@@ -254,6 +264,59 @@ module Archaeo
         { name: el["name"].to_s, type: (el["type"] || el.name).to_s }
       end
       inputs.reject { |f| f[:name].empty? }
+    end
+
+    ARTICLE_SELECTORS = %w[
+      article [role=article] .post .entry .blog-post
+      .hentry .post-content .entry-content .article-content
+      .story .story-body .news-article
+    ].freeze
+
+    def find_article_containers(doc)
+      found = ARTICLE_SELECTORS
+        .filter_map { |sel| doc.css(sel) }
+        .flat_map(&:to_a)
+      found.any? ? found.uniq : [doc.at_css("body") || doc]
+    end
+
+    def extract_micropost(element)
+      title = extract_micropost_title(element)
+      body = extract_micropost_body(element)
+      return nil if body.nil? || body.strip.empty?
+
+      { title: title, body: body.strip,
+        date: extract_micropost_date(element),
+        author: extract_micropost_author(element) }
+    end
+
+    def extract_micropost_title(el)
+      heading = el.at_css("h1, h2, h3, [class*=title], [class*=heading]")
+      heading&.text&.strip
+    end
+
+    def extract_micropost_body(el)
+      paragraphs = el.css("p").map(&:text).join("\n")
+      return nil if paragraphs.strip.empty?
+
+      paragraphs
+    end
+
+    def extract_micropost_date(el)
+      time = el.at_css("time[datetime]")
+      return time["datetime"] if time
+
+      date_el = el.at_css(
+        "[class*=date], [class*=time], [class*=published], " \
+        "[property='datePublished']",
+      )
+      date_el&.text&.strip
+    end
+
+    def extract_micropost_author(el)
+      author_el = el.at_css(
+        "[class*=author], [rel=author], [property='author']",
+      )
+      author_el&.text&.strip
     end
   end
 end
