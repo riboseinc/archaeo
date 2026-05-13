@@ -69,4 +69,6 @@ module Archaeo
   autoload :ContentChangeReport, "archaeo/content_tracker"
   autoload :ArchiveSearch, "archaeo/archive_search"
   autoload :SearchResult, "archaeo/archive_search"
+  autoload :LocalRewriter, "archaeo/local_rewriter"
+  autoload :LocalRewriteSummary, "archaeo/local_rewriter"
 end
