@@ -59,21 +59,15 @@ module Archaeo
     end
 
     def title
-      @title ||= begin
-        doc = Nokogiri::HTML(@raw_content)
-        doc.at_css("title")&.text&.strip
-      rescue StandardError
-        nil
-      end
+      @title ||= html_doc.at_css("title")&.text&.strip
     end
 
     def links
       return [] unless html?
 
       @links ||= begin
-        doc = Nokogiri::HTML(@raw_content)
         base = @archive_url || @original_url
-        doc.css("a[href]").map do |anchor|
+        html_doc.css("a[href]").map do |anchor|
           href = resolve_page_url(anchor["href"], base)
           { href: href, text: anchor.text.strip,
             external: href && !href.include?(original_domain) }
@@ -85,9 +79,8 @@ module Archaeo
       return {} unless html?
 
       @meta_tags ||= begin
-        doc = Nokogiri::HTML(@raw_content)
-        result = extract_meta_entries(doc)
-        canonical = doc.at_css('link[rel="canonical"]')
+        result = extract_meta_entries(html_doc)
+        canonical = html_doc.at_css('link[rel="canonical"]')
         result["canonical"] = canonical["href"].to_s if canonical
         result
       end
@@ -96,46 +89,34 @@ module Archaeo
     def headings
       return [] unless html?
 
-      @headings ||= begin
-        doc = Nokogiri::HTML(@raw_content)
-        doc.css("h1, h2, h3, h4, h5, h6").map do |el|
-          { level: el.name[1].to_i, text: el.text.strip }
-        end
+      @headings ||= html_doc.css("h1, h2, h3, h4, h5, h6").map do |el|
+        { level: el.name[1].to_i, text: el.text.strip }
       end
     end
 
     def images
       return [] unless html?
 
-      @images ||= begin
-        doc = Nokogiri::HTML(@raw_content)
-        doc.css("img[src]").map do |el|
-          { src: el["src"], alt: el["alt"].to_s,
-            width: el["width"]&.to_i, height: el["height"]&.to_i }
-        end
+      @images ||= html_doc.css("img[src]").map do |el|
+        { src: el["src"], alt: el["alt"].to_s,
+          width: el["width"]&.to_i, height: el["height"]&.to_i }
       end
     end
 
     def forms
       return [] unless html?
 
-      @forms ||= begin
-        doc = Nokogiri::HTML(@raw_content)
-        doc.css("form").map do |form|
-          { action: form["action"].to_s, method: (form["method"] || "GET").upcase,
-            fields: extract_form_fields(form) }
-        end
+      @forms ||= html_doc.css("form").map do |form|
+        { action: form["action"].to_s, method: (form["method"] || "GET").upcase,
+          fields: extract_form_fields(form) }
       end
     end
 
     def scripts
       return [] unless html?
 
-      @scripts ||= begin
-        doc = Nokogiri::HTML(@raw_content)
-        doc.css("script").map do |el|
-          { src: el["src"].to_s, type: el["type"].to_s }
-        end
+      @scripts ||= html_doc.css("script").map do |el|
+        { src: el["src"].to_s, type: el["type"].to_s }
       end
     end
 
@@ -143,8 +124,7 @@ module Archaeo
       return [] unless html?
 
       @microposts ||= begin
-        doc = Nokogiri::HTML(@raw_content)
-        containers = find_article_containers(doc)
+        containers = find_article_containers(html_doc)
         containers.filter_map { |el| extract_micropost(el) }
       end
     end
@@ -162,15 +142,7 @@ module Archaeo
     end
 
     def as_json(*)
-      {
-        content_type: @content_type,
-        status_code: @status_code,
-        archive_url: @archive_url,
-        original_url: @original_url,
-        timestamp: @timestamp.to_s,
-        size: size,
-        encoding: encoding.to_s,
-      }
+      to_h.transform_values { |v| v.is_a?(Timestamp) ? v.to_s : v }
     end
 
     def inspect
@@ -178,6 +150,10 @@ module Archaeo
     end
 
     private
+
+    def html_doc
+      @html_doc ||= Nokogiri::HTML(@raw_content)
+    end
 
     def detect_encoding
       charset = extract_charset(@content_type)
@@ -199,11 +175,10 @@ module Archaeo
     end
 
     def detect_html_charset
-      doc = Nokogiri::HTML(@raw_content)
-      node = doc.at_css("meta[charset]")
+      node = html_doc.at_css("meta[charset]")
       return node["charset"] if node
 
-      content = doc.at_css('meta[http-equiv="Content-Type"]')&.[]("content")
+      content = html_doc.at_css('meta[http-equiv="Content-Type"]')&.[]("content")
       return nil unless content
 
       match = content.match(/charset=([^\s;]+)/i)
@@ -250,8 +225,8 @@ module Archaeo
 
     def resolve_page_url(href, base)
       return href unless href
-      return href if href.start_with?("http", "//", "data:", "#",
-                                      "javascript:")
+      return href if href.start_with?("http:", "https:", "//", "data:",
+                                      "#", "javascript:")
       return nil unless base
 
       URI.join(base, href).to_s
