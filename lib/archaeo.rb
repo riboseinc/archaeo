@@ -71,4 +71,7 @@ module Archaeo
   autoload :SearchResult, "archaeo/archive_search"
   autoload :LocalRewriter, "archaeo/local_rewriter"
   autoload :LocalRewriteSummary, "archaeo/local_rewriter"
+  autoload :CoverageAnalyzer, "archaeo/coverage_analyzer"
+  autoload :HealthReport, "archaeo/health_report"
+  autoload :HealthDetail, "archaeo/health_report"
 end
