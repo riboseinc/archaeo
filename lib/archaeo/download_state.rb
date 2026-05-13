@@ -73,18 +73,15 @@ module Archaeo
     def stale_entries(base_dir: @output_dir)
       @mutex.synchronize do
         entries.reject do |e|
-          find_file(base_dir,
-                    e["ts"]) && File.exist?(find_file(base_dir, e["ts"]))
+          path = find_file(base_dir, e["ts"])
+          path && File.exist?(path)
         end
       end
     end
 
     def cleanup_stale(base_dir: @output_dir)
       @mutex.synchronize do
-        stale = entries.reject do |e|
-          path = find_file(base_dir, e["ts"])
-          path && File.exist?(path)
-        end
+        stale = stale_entries(base_dir: base_dir)
         @entries = entries - stale
         @entries_key = nil
         save

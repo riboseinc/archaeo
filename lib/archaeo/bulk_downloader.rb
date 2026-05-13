@@ -245,9 +245,6 @@ module Archaeo
       page = fetch_page(snapshot)
       validate_page_status(page, snapshot)
       write_page_file(page, snapshot)
-    rescue StandardError
-      FileUtils.rm_f(tmp_path) if defined?(tmp_path)
-      raise
     end
 
     def fetch_page(snapshot)
@@ -272,6 +269,9 @@ module Archaeo
       File.binwrite(tmp_path, page.content)
       File.rename(tmp_path, filename)
       page.content
+    rescue StandardError
+      FileUtils.rm_f(tmp_path) if defined?(tmp_path)
+      raise
     end
 
     EXTENSION_MAP = {
