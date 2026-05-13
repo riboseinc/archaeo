@@ -104,7 +104,6 @@ module Archaeo
     end
 
     def count_elements(page)
-      require "nokogiri"
       doc = Nokogiri::HTML(page.content)
       counts = Hash.new(0)
       doc.css("*").each { |el| counts[el.name] += 1 }

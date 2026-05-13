@@ -1,20 +1,6 @@
 # frozen_string_literal: true
 
 module Archaeo
-  # Verifies that archived snapshots are still accessible.
-  #
-  # Checks each snapshot by performing HEAD requests to the
-  # archive URL and reporting accessibility status.
-  HealthReport = Struct.new(
-    :total, :accessible, :missing, :errors, :details,
-    keyword_init: true
-  )
-
-  HealthDetail = Struct.new(
-    :snapshot, :status, :error,
-    keyword_init: true
-  )
-
   class ArchiveHealthCheck
     def initialize(client: HttpClient.new, cdx_api: nil)
       @client = client
