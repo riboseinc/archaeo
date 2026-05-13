@@ -60,4 +60,13 @@ module Archaeo
   autoload :Configuration, "archaeo/configuration"
   autoload :CoverageReport, "archaeo/coverage_report"
   autoload :ProgressReport, "archaeo/progress_report"
+  autoload :ColorOutput, "archaeo/color_output"
+  autoload :WarcReader, "archaeo/warc_support"
+  autoload :WarcWriter, "archaeo/warc_support"
+  autoload :WarcRecord, "archaeo/warc_support"
+  autoload :ParallelCdx, "archaeo/parallel_cdx"
+  autoload :ContentTracker, "archaeo/content_tracker"
+  autoload :ContentChangeReport, "archaeo/content_tracker"
+  autoload :ArchiveSearch, "archaeo/archive_search"
+  autoload :SearchResult, "archaeo/archive_search"
 end

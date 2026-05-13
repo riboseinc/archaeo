@@ -9,6 +9,14 @@ RSpec.configure do |config|
   config.expect_with :rspec do |c|
     c.syntax = :expect
   end
+
+  def with_env(env)
+    old = env.to_h { |k, _v| [k, ENV.fetch(k, nil)] }
+    env.each { |k, v| ENV[k] = v }
+    yield
+  ensure
+    old.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+  end
 end
 
 # Lightweight test double for Archaeo::HttpClient

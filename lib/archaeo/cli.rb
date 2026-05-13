@@ -12,6 +12,8 @@ module Archaeo
 
     class_option :quiet, type: :boolean, default: false,
                          desc: "Suppress progress messages"
+    class_option :no_color, type: :boolean, default: false,
+                            desc: "Disable colored output"
 
     def self.exit_on_failure?
       true
@@ -351,6 +353,68 @@ module Archaeo
       end
     end
 
+    desc "search URL QUERY", "Search archived snapshots for text"
+    option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
+    option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
+    option :max_results, type: :numeric, desc: "Maximum results to return"
+    option :case_sensitive, type: :boolean, default: false,
+                            desc: "Case-sensitive search"
+    option :format, desc: "Output format (table, json)", default: "table"
+    def search(url, query)
+      handle_errors do
+        searcher = ArchiveSearch.new
+        results = searcher.search(
+          url, query: query,
+               from: options[:from], to: options[:to],
+               max_results: options[:max_results],
+               case_sensitive: options[:case_sensitive]
+        )
+        output_search_results(results)
+      end
+    end
+
+    desc "track-changes URL",
+         "Track content changes over time"
+    option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
+    option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
+    option :format, desc: "Output format (table, json)", default: "table"
+    def track_changes(url)
+      handle_errors do
+        tracker = ContentTracker.new
+        report = tracker.track(url, from: options[:from], to: options[:to])
+        output_content_changes(report)
+      end
+    end
+
+    desc "warc-export URL", "Export snapshots to WARC format"
+    option :output, desc: "Output WARC file path", required: true
+    option :from, desc: "Start timestamp (YYYYMMDDHHmmss)"
+    option :to, desc: "End timestamp (YYYYMMDDHHmmss)"
+    option :gzip, type: :boolean, default: false,
+                  desc: "Write gzip-compressed WARC (.warc.gz)"
+    def warc_export(url)
+      handle_errors do
+        fetcher = Fetcher.new
+        cdx = CdxApi.new
+        opts = {}
+        opts[:from] = options[:from] if options[:from]
+        opts[:to] = options[:to] if options[:to]
+        snapshots = cdx.snapshots(url, **opts)
+          .select(&:success?).to_a
+
+        pages = snapshots.filter_map do |snap|
+          fetcher.fetch(snap.original_url, timestamp: snap.timestamp)
+        rescue Error
+          nil
+        end
+
+        WarcWriter.new.write(options[:output], pages,
+                             compress: options[:gzip])
+        color = build_color
+        warn color.success("Exported #{pages.size} snapshots to #{options[:output]}")
+      end
+    end
+
     CDX_OPTION_MAP = {
       from: :from,
       to: :to,
@@ -370,16 +434,16 @@ module Archaeo
     def handle_errors
       yield
     rescue RateLimitError => e
-      warn "Rate limited: #{e.message}"
+      warn build_color.warning("Rate limited: #{e.message}")
       exit 1
     rescue NoSnapshotFound => e
-      warn "Not found: #{e.message}"
+      warn build_color.error("Not found: #{e.message}")
       exit 1
     rescue BlockedSiteError => e
-      warn "Blocked: #{e.message}"
+      warn build_color.error("Blocked: #{e.message}")
       exit 1
     rescue Error => e
-      warn "Error: #{e.message}"
+      warn build_color.error("Error: #{e.message}")
       exit 1
     end
 
@@ -745,6 +809,54 @@ module Archaeo
           end
         end
       end
+    end
+
+    def output_search_results(results)
+      case options[:format]
+      when "json"
+        puts JSON.generate(results.map(&:as_json))
+      else
+        if results.empty?
+          warn "No results found."
+          return
+        end
+        results.each do |result|
+          puts "#{result.snapshot.timestamp} #{result.url}"
+          puts "  #{result.context}"
+          puts
+        end
+        warn "#{results.size} result(s) found."
+      end
+    end
+
+    def output_content_changes(report)
+      case options[:format]
+      when "json"
+        puts JSON.generate(report.as_json)
+      else
+        puts "URL: #{report.url}"
+        puts "Total snapshots: #{report.total_snapshots}"
+        puts "Unique digests: #{report.unique_digests}"
+        puts "URLs changed: #{report.changed_urls.size}"
+        puts "URLs added: #{report.new_urls.size}"
+        puts "URLs removed: #{report.removed_urls.size}"
+        unless report.changed_urls.empty?
+          puts "Changed URLs:"
+          report.changed_urls.each { |u| puts "  #{u}" }
+        end
+        unless report.new_urls.empty?
+          puts "New URLs:"
+          report.new_urls.each { |u| puts "  + #{u}" }
+        end
+        unless report.removed_urls.empty?
+          puts "Removed URLs:"
+          report.removed_urls.each { |u| puts "  - #{u}" }
+        end
+      end
+    end
+
+    def build_color
+      ColorOutput.new(enabled: !options[:no_color])
     end
   end
 end
